@@ -46,7 +46,7 @@
     <div class="field">
       <span class="label">Hintergrund</span>
       <input type="file" id="bgFile" accept="image/*" />
-      <span class="hint">Ohne Upload zeichnet die Seite eine Minecraft-Welt: Voxel-Hügel, Bäume, Grasfeld, Blockwolken.</span>
+      <span class="hint">Ohne Upload zeichnet die Seite eine Blockwelt aus echten Würfeln: Grasfeld, Blockhügel, Bäume, Teich.</span>
     </div>
 
     <div class="field">
@@ -63,7 +63,7 @@
       </div>
       <div class="field">
         <span class="label">Größe</span>
-        <input type="range" id="charSize" min="320" max="760" value="620" />
+        <input type="range" id="charSize" min="200" max="700" value="380" />
       </div>
       <div class="field">
         <span class="label">Seite</span>
@@ -112,13 +112,13 @@
 (() => {
   'use strict';
 
-  const W = 1280, H = 720, GY = 306;
+  const W = 1280, H = 720;
   const cv = document.getElementById('preview');
   const ctx = cv.getContext('2d');
   const $ = function (id) { return document.getElementById(id); };
 
   const state = {
-    bg: null, char: null, charSize: 620, side: 'right', model: 'auto',
+    bg: null, char: null, charSize: 380, side: 'right', model: 'auto',
     lines: [], accent: '#ffd400', outline: true, shadow: true, arrow: true
   };
 
@@ -129,7 +129,9 @@
     return s - Math.floor(s);
   }
 
-  function lerp(a, b, t) { return a + (b - a) * t; }
+  function pick(arr, a, b) {
+    return arr[Math.floor(hash(a, b) * arr.length) % arr.length];
+  }
 
   function tint(src, color) {
     const c = document.createElement('canvas');
@@ -150,32 +152,184 @@
   }
 
   /* ---------------------------------------------------------------
-     Welt: Minecraft-Welt mit Blockhügeln, Bäumen, Grasfeld
+     Blockwelt: isometrische Würfel, echte Blockflächen
      --------------------------------------------------------------- */
 
-  function drawSky(g) {
-    const sky = g.createLinearGradient(0, 0, 0, GY + 80);
-    sky.addColorStop(0, '#2b79c2');
-    sky.addColorStop(0.42, '#6cbbe8');
-    sky.addColorStop(0.78, '#b3e1f6');
-    sky.addColorStop(1, '#e7f6ff');
-    g.fillStyle = sky;
-    g.fillRect(0, 0, W, GY + 80);
+  const GRID = 34;
+  const TW = 34, TD = 17, TH = 34;
+  const OX = 640, OY = 252;
 
-    const sx = W * 0.79, sy = H * 0.12;
-    const sun = g.createRadialGradient(sx, sy, 8, sx, sy, 300);
+  const GRASS_TOP = ['#74c74f', '#6dbd48', '#7ccf55', '#68b743'];
+  const GRASS_RIM = ['#5aa53c', '#549e37'];
+  const DIRT_SIDE = ['#8b6545', '#83603f', '#916a4a'];
+  const DIRT_TOP = ['#a37c55', '#9a7450'];
+  const STONE_TOP = ['#9b9b9b', '#909090', '#a4a4a4'];
+  const STONE_SIDE = ['#828282', '#7b7b7b'];
+  const WATER_TOP = ['#3f8fd8', '#3a86cc'];
+  const WOOD = ['#6f4c2a', '#654526', '#7a5530'];
+  const WOOD_SIDE = ['#5c3f22', '#553a1f'];
+  const LEAF_TOP = ['#4fa338', '#489a2c', '#57ab3e', '#429632'];
+  const LEAF_SIDE = ['#3d8a26', '#357d20'];
+
+  function iso(x, y, z) {
+    return { x: OX + (x - z) * TW, y: OY + (x + z) * TD - y * TH };
+  }
+
+  function poly(g, pts, fill, stroke) {
+    g.beginPath();
+    g.moveTo(pts[0].x, pts[0].y);
+    for (let i = 1; i < pts.length; i++) g.lineTo(pts[i].x, pts[i].y);
+    g.closePath();
+    g.fillStyle = fill;
+    g.fill();
+    if (stroke) {
+      g.strokeStyle = stroke;
+      g.lineWidth = 1;
+      g.stroke();
+    }
+  }
+
+  function isPond(x, z) {
+    const dx = (x - 9) / 2.9, dz = (z - 9) / 2.2;
+    return dx * dx + dz * dz < 1;
+  }
+
+  function hAt(x, z) {
+    const k = x + z;
+    const t = Math.max(0, (22 - k) / 22);
+    let h = 1 + Math.pow(t, 1.15) * 2.5;
+    h += (Math.sin(x * 0.55) * 0.5 + Math.cos(z * 0.5 + 1.2) * 0.5) * t;
+    h = Math.round(h);
+    if (k < 20 && hash(x * 1.7 + 2, z * 2.3 + 3) > 0.92) h += 1;
+    return Math.max(1, Math.min(6, h));
+  }
+
+  function surfaceOf(x, z, h) {
+    if (isPond(x, z)) return 'water';
+    if (h >= 4 && hash(x * 1.3, z * 1.9) > 0.2) return 'stone';
+    if (hash(x * 0.9 + 4, z * 1.1 + 9) > 0.95) return 'dirt';
+    return 'grass';
+  }
+
+  function drawColumn(g, x, z) {
+    const h = hAt(x, z);
+    const surf = surfaceOf(x, z, h);
+
+    if (surf === 'water') {
+      const wy = h - 0.22;
+      poly(g, [iso(x, wy, z), iso(x + 1, wy, z), iso(x + 1, wy, z + 1), iso(x, wy, z + 1)],
+        pick(WATER_TOP, x, z), 'rgba(12,52,96,.28)');
+      return;
+    }
+
+    const hx = hAt(x + 1, z);
+    const hz = hAt(x, z + 1);
+
+    if (hx < h) {
+      const stone = surf === 'stone';
+      poly(g, [iso(x + 1, hx, z), iso(x + 1, hx, z + 1), iso(x + 1, h, z + 1), iso(x + 1, h, z)],
+        stone ? pick(STONE_SIDE, x, z) : pick(DIRT_SIDE, x, z), 'rgba(0,0,0,.14)');
+      if (!stone) {
+        poly(g, [iso(x + 1, h - 0.26, z), iso(x + 1, h - 0.26, z + 1), iso(x + 1, h, z + 1), iso(x + 1, h, z)],
+          pick(GRASS_RIM, x, z));
+      }
+    }
+
+    if (hz < h) {
+      const stone = surf === 'stone';
+      poly(g, [iso(x, hz, z + 1), iso(x + 1, hz, z + 1), iso(x + 1, h, z + 1), iso(x, h, z + 1)],
+        stone ? pick(STONE_SIDE, z, x) : pick(DIRT_SIDE, z, x), 'rgba(0,0,0,.14)');
+      if (!stone) {
+        poly(g, [iso(x, h - 0.26, z + 1), iso(x + 1, h - 0.26, z + 1), iso(x + 1, h, z + 1), iso(x, h, z + 1)],
+          pick(GRASS_RIM, z, x));
+      }
+    }
+
+    const top = surf === 'stone' ? pick(STONE_TOP, x, z)
+      : surf === 'dirt' ? pick(DIRT_TOP, x, z)
+      : pick(GRASS_TOP, x, z);
+
+    poly(g, [iso(x, h, z), iso(x + 1, h, z), iso(x + 1, h, z + 1), iso(x, h, z + 1)], top, 'rgba(0,0,0,.14)');
+  }
+
+  function cube(g, x, y, z, colTop, colX, colZ, sx, sz) {
+    const a = iso(x, y, z), b = iso(x + 1, y, z), c = iso(x + 1, y, z + 1), d = iso(x, y, z + 1);
+    const e = iso(x, y + 1, z), f = iso(x + 1, y + 1, z), gg = iso(x + 1, y + 1, z + 1), hh = iso(x, y + 1, z + 1);
+    poly(g, [b, c, gg, f], pick(colX, sx, sz), 'rgba(0,0,0,.16)');
+    poly(g, [d, c, gg, hh], pick(colZ, sz, sx), 'rgba(0,0,0,.16)');
+    poly(g, [e, f, gg, hh], pick(colTop, sx, sz), 'rgba(0,0,0,.14)');
+  }
+
+  function drawTree(g, tx, tz, kind) {
+    const base = hAt(tx, tz);
+    const tall = kind === 'big' ? 4 : kind === 'mid' ? 3 : 2;
+    const topY = base + tall;
+
+    for (let i = 0; i < tall; i++) {
+      cube(g, tx, base + i, tz, WOOD, WOOD_SIDE, WOOD_SIDE, tx + i, tz);
+    }
+
+    const cells = [];
+    if (kind === 'small') {
+      cells.push([0, topY, 0], [-1, topY, 0], [0, topY, -1], [1, topY, 0], [0, topY, 1], [0, topY + 1, 0]);
+    } else {
+      for (let y = topY - 1; y <= topY + 1; y++) {
+        const r = y === topY + 1 ? 0 : 1;
+        for (let dx = -r; dx <= r; dx++) {
+          for (let dz = -r; dz <= r; dz++) {
+            if (r === 1 && Math.abs(dx) === 1 && Math.abs(dz) === 1 && y !== topY) continue;
+            cells.push([dx, y, dz]);
+          }
+        }
+      }
+    }
+
+    cells.sort(function (p, q) {
+      const a = p[0] + p[2], b = q[0] + q[2];
+      return a - b || p[1] - q[1];
+    });
+
+    for (let i = 0; i < cells.length; i++) {
+      const cx = tx + cells[i][0], cz = tz + cells[i][2];
+      cube(g, cx, cells[i][1], cz, LEAF_TOP, LEAF_SIDE, LEAF_SIDE, cx, cz);
+    }
+  }
+
+  const TREES = [
+    [7, 9, 'big'], [20, 6, 'mid'], [26, 12, 'big'], [5, 16, 'mid'],
+    [22, 18, 'small'], [12, 20, 'big'], [28, 26, 'mid'], [4, 24, 'small'],
+    [16, 27, 'mid'], [30, 20, 'small']
+  ];
+
+  function treesAt(k) {
+    const out = [];
+    for (let i = 0; i < TREES.length; i++) {
+      if (TREES[i][0] + TREES[i][1] === k) out.push(TREES[i]);
+    }
+    return out;
+  }
+
+  function drawSky(g) {
+    const sky = g.createLinearGradient(0, 0, 0, 560);
+    sky.addColorStop(0, '#2f7ec8');
+    sky.addColorStop(0.48, '#7cc2ea');
+    sky.addColorStop(1, '#dcf2fd');
+    g.fillStyle = sky;
+    g.fillRect(0, 0, W, H);
+
+    const sun = g.createRadialGradient(1040, 108, 10, 1040, 108, 300);
     sun.addColorStop(0, 'rgba(255,253,232,.95)');
-    sun.addColorStop(0.3, 'rgba(255,246,196,.45)');
-    sun.addColorStop(1, 'rgba(255,246,196,0)');
+    sun.addColorStop(0.28, 'rgba(255,246,190,.42)');
+    sun.addColorStop(1, 'rgba(255,246,190,0)');
     g.fillStyle = sun;
-    g.fillRect(0, 0, W, GY + 80);
+    g.fillRect(0, 0, W, H);
   }
 
   function drawCloud(g, cx, baseY, u, alpha) {
     const rows = [
       [baseY - 3 * u, -2 * u, 4 * u],
-      [baseY - 2 * u, -3.5 * u, 7 * u],
-      [baseY - 1 * u, -2.5 * u, 5 * u]
+      [baseY - 2 * u, -4 * u, 8 * u],
+      [baseY - u, -3 * u, 6 * u]
     ];
     g.save();
     g.globalAlpha = alpha;
@@ -183,160 +337,32 @@
       g.fillStyle = '#ffffff';
       g.fillRect(cx + rows[i][1], rows[i][0], rows[i][2], u);
     }
-    g.fillStyle = 'rgba(166,199,224,.55)';
-    g.fillRect(cx - 2.5 * u, baseY - u * 0.32, 5 * u, u * 0.32);
+    g.fillStyle = 'rgba(168,204,228,.55)';
+    g.fillRect(cx - 3 * u, baseY - u * 0.3, 6 * u, u * 0.3);
     g.restore();
   }
 
   function drawClouds(g) {
-    drawCloud(g, 210, 148, 26, 0.95);
-    drawCloud(g, 565, 92, 20, 0.85);
-    drawCloud(g, 900, 162, 28, 0.92);
-    drawCloud(g, 1185, 70, 18, 0.8);
+    drawCloud(g, 250, 152, 24, 0.95);
+    drawCloud(g, 600, 96, 18, 0.85);
+    drawCloud(g, 905, 170, 26, 0.92);
+    drawCloud(g, 1195, 74, 16, 0.8);
   }
 
-  function hillHeights(n, base, amp, seed) {
-    const r = rng(seed);
-    const out = [];
-    for (let i = 0; i < n; i++) {
-      const wave = 0.55 + 0.45 * Math.sin(i * 0.55 + seed);
-      out.push(Math.max(1, Math.round(base + amp * wave + (r() - 0.5) * 0.9)));
-    }
-    return out;
-  }
-
-  function rng(seed) {
-    let s = seed * 1000 + 7;
-    return function () {
-      s = (s * 1103515245 + 12345) % 2147483648;
-      return s / 2147483648;
-    };
-  }
-
-  function drawRidge(g, x0, baseY, u, heights, pal) {
-    for (let i = 0; i < heights.length; i++) {
-      const h = heights[i];
-      for (let j = 0; j < h; j++) {
-        const x = x0 + i * u;
-        const y = baseY - (j + 1) * u;
-        const v = hash(i, j);
-        const top = j === h - 1;
-        g.fillStyle = top ? (v > 0.5 ? pal.grassA : pal.grassB) : (v > 0.5 ? pal.bodyA : pal.bodyB);
-        g.fillRect(x, y, u + 0.7, u + 0.7);
-        if (top) {
-          g.fillStyle = pal.lip;
-          g.fillRect(x, y, u + 0.7, Math.max(3, u * 0.34));
-        }
-        g.fillStyle = 'rgba(0,0,0,.07)';
-        g.fillRect(x, y, u + 0.7, Math.max(1, u * 0.06));
-      }
-    }
-  }
-
-  function drawHills(g) {
-    drawRidge(g, -60, GY + 8, 38, hillHeights(40, 1.9, 1.5, 3), {
-      grassA: '#a7d8c6', grassB: '#9dd0bc', bodyA: '#93c0ac', bodyB: '#8bb8a5', lip: '#b9e6d4'
-    });
-    drawRidge(g, -30, GY + 4, 30, hillHeights(50, 1.4, 1.2, 9), {
-      grassA: '#8fd47a', grassB: '#84c96f', bodyA: '#5da843', bodyB: '#569e3d', lip: '#a3e08d'
-    });
-  }
-
-  function drawGround(g) {
-    const C = H - GY;
-    const zFar = 30, N = 46, K = 200;
-    const bands = [];
-    for (let i = 0; i <= N; i++) {
-      const t = i / N;
-      const z = 1 + (zFar - 1) * Math.pow(t, 2.2);
-      bands.push({ z: z, y: GY + C / z });
-    }
-
-    g.fillStyle = '#a2cdb6';
-    g.fillRect(0, GY - 1, W, H - GY + 1);
-
-    const far = [152, 200, 178];
-    const near = [94, 172, 64];
-
-    for (let i = N; i >= 1; i--) {
-      const yTop = bands[i].y;
-      const yBot = bands[i - 1].y;
-      const zNearB = bands[i - 1].z;
-      const nearK = 1 - i / N;
-      const cw = K / zNearB;
-      const n = Math.ceil(W / cw) + 2;
-      const mix = Math.pow(nearK, 0.7);
-      const base = [lerp(far[0], near[0], mix), lerp(far[1], near[1], mix), lerp(far[2], near[2], mix)];
-
-      for (let c = 0; c < n; c++) {
-        const x = c * cw;
-        const k = 0.9 + hash(c * 0.37 + i * 1.7, i) * 0.2;
-        g.fillStyle = 'rgb(' + Math.round(base[0] * k) + ',' + Math.round(base[1] * k) + ',' + Math.round(base[2] * k) + ')';
-        g.fillRect(x, yTop, cw + 0.9, yBot - yTop + 0.9);
+  function drawTerrain(g) {
+    for (let k = 0; k <= 34; k++) {
+      const from = Math.max(0, k - (GRID - 1));
+      const to = Math.min(GRID - 1, k);
+      for (let x = from; x <= to; x++) {
+        const z = k - x;
+        const sx = OX + (x - z) * TW;
+        if (sx < -90 || sx > W + 90) continue;
+        drawColumn(g, x, z);
       }
 
-      if (cw > 8) {
-        g.strokeStyle = 'rgba(26,68,26,' + (0.05 + 0.13 * nearK).toFixed(3) + ')';
-        g.lineWidth = Math.max(1, 1.7 * nearK);
-        g.beginPath();
-        g.moveTo(0, yTop);
-        g.lineTo(W, yTop);
-        g.stroke();
-        for (let c = 0; c <= n; c++) {
-          const x = c * cw;
-          g.beginPath();
-          g.moveTo(x, yTop);
-          g.lineTo(x, yBot);
-          g.stroke();
-        }
-      }
+      const tr = treesAt(k);
+      for (let i = 0; i < tr.length; i++) drawTree(g, tr[i][0], tr[i][1], tr[i][2]);
     }
-
-    const haze = g.createLinearGradient(0, GY - 46, 0, GY + 96);
-    haze.addColorStop(0, 'rgba(222,242,255,.9)');
-    haze.addColorStop(0.45, 'rgba(222,242,255,.35)');
-    haze.addColorStop(1, 'rgba(222,242,255,0)');
-    g.fillStyle = haze;
-    g.fillRect(0, GY - 46, W, 142);
-  }
-
-  function drawTree(g, cx, baseY, u) {
-    const trunkH = 4 * u;
-    const top = baseY - trunkH;
-
-    g.fillStyle = '#6f4c2a';
-    g.fillRect(cx - u * 0.5, top, u, trunkH);
-    g.fillStyle = 'rgba(0,0,0,.22)';
-    g.fillRect(cx + u * 0.08, top, u * 0.42, trunkH);
-    g.fillStyle = 'rgba(255,255,255,.10)';
-    g.fillRect(cx - u * 0.5, top, u * 0.2, trunkH);
-
-    const rows = [
-      [-3, -1.5, 3],
-      [-2, -2.5, 5],
-      [-1, -2.5, 5],
-      [0, -1.5, 3]
-    ];
-    const greens = ['#4f9b31', '#57a83a', '#448c2a', '#63b845'];
-
-    for (let r = 0; r < rows.length; r++) {
-      for (let c = 0; c < rows[r][2]; c++) {
-        const bx = cx + (rows[r][1] + c) * u;
-        const by = top + rows[r][0] * u;
-        const v = hash(Math.floor(bx * 0.11), Math.floor(by * 0.11));
-        g.fillStyle = greens[Math.floor(v * 4) % 4];
-        g.fillRect(bx, by, u + 0.7, u + 0.7);
-        g.fillStyle = 'rgba(0,0,0,.10)';
-        g.fillRect(bx, by + u, u + 0.7, Math.max(1, u * 0.09));
-      }
-    }
-  }
-
-  function drawBush(g, cx, baseY, u) {
-    g.fillStyle = '#4d9633';
-    g.fillRect(cx - u * 0.5, baseY - u, u, u);
-    g.fillStyle = '#63b845';
-    g.fillRect(cx - u * 0.5, baseY - u, u, Math.max(2, u * 0.32));
   }
 
   let worldCache = null;
@@ -346,21 +372,9 @@
     c.width = W;
     c.height = H;
     const g = c.getContext('2d');
-
     drawSky(g);
     drawClouds(g);
-    drawHills(g);
-    drawGround(g);
-
-    const trees = [
-      [150, 338, 18], [470, 330, 15], [770, 336, 17], [1085, 344, 20],
-      [330, 396, 25], [640, 428, 29], [905, 462, 34], [1180, 486, 32]
-    ];
-    for (let i = 0; i < trees.length; i++) drawTree(g, trees[i][0], trees[i][1], trees[i][2]);
-
-    const bushes = [[220, 372, 14], [560, 366, 12], [860, 392, 16], [1000, 372, 13], [70, 404, 18], [1240, 420, 20]];
-    for (let i = 0; i < bushes.length; i++) drawBush(g, bushes[i][0], bushes[i][1], bushes[i][2]);
-
+    drawTerrain(g);
     return c;
   }
 
@@ -370,7 +384,7 @@
   }
 
   /* ---------------------------------------------------------------
-     Skin: robuste Erkennung und korrekte Proportionen
+     Skin: robuste Erkennung, ruhige Proportionen
      --------------------------------------------------------------- */
 
   function isSkin(img) {
@@ -422,26 +436,23 @@
     const bodyX = aw;
     const totalW = 8 + aw * 2;
     const s = state.charSize / 32;
-    const EDGE = 0.42;
     const pad = 2;
-    const maxX = totalW + 4 * EDGE;
 
     const c = document.createElement('canvas');
-    c.width = Math.ceil((maxX + pad * 2) * s);
+    c.width = Math.ceil((totalW + pad * 2) * s);
     c.height = Math.ceil((32 + pad * 2) * s);
     const g = c.getContext('2d');
     g.imageSmoothingEnabled = false;
 
-    function X(v) { return (pad + v) * s; }
-    function Y(v) { return (pad + v) * s; }
+    function E(v) { return Math.round((pad + v) * s); }
 
     const src = {
-      head: { f: [8, 8, 8, 8], s: [0, 8, 8, 8] },
-      body: { f: [20, 20, 8, 12], s: [16, 20, 4, 12] },
-      armR: { f: [44, 20, aw, 12], s: [40, 20, aw, 12] },
-      armL: { f: legacy ? [44, 20, aw, 12] : [36, 52, aw, 12], s: legacy ? [40, 20, aw, 12] : [32, 52, aw, 12] },
-      legR: { f: [4, 20, 4, 12], s: [0, 20, 4, 12] },
-      legL: { f: legacy ? [4, 20, 4, 12] : [20, 52, 4, 12], s: legacy ? [0, 20, 4, 12] : [16, 52, 4, 12] }
+      head: { f: [8, 8, 8, 8] },
+      body: { f: [20, 20, 8, 12] },
+      armR: { f: [44, 20, aw, 12] },
+      armL: { f: legacy ? [44, 20, aw, 12] : [36, 52, aw, 12] },
+      legR: { f: [4, 20, 4, 12] },
+      legL: { f: legacy ? [4, 20, 4, 12] : [20, 52, 4, 12] }
     };
 
     const over = legacy
@@ -455,27 +466,20 @@
           legL: [4, 52, 4, 12]
         };
 
-    function part(name, dx, dy, dw, dh, depth, extra) {
-      const p = src[name];
-      const sw = depth * EDGE;
-
-      g.drawImage(img, p.s[0] * u, p.s[1] * u, p.s[2] * u, p.s[3] * u, X(dx + dw), Y(dy), sw * s, dh * s);
-      g.fillStyle = 'rgba(0,0,0,.26)';
-      g.fillRect(X(dx + dw), Y(dy), sw * s, dh * s);
-
-      g.drawImage(img, p.f[0] * u, p.f[1] * u, p.f[2] * u, p.f[3] * u, X(dx), Y(dy), dw * s, dh * s);
-
-      if (extra) {
-        g.drawImage(img, extra[0] * u, extra[1] * u, extra[2] * u, extra[3] * u, X(dx), Y(dy), dw * s, dh * s);
-      }
+    function part(name, dx, dy, dw, dh) {
+      const x0 = E(dx), y0 = E(dy), w = E(dx + dw) - x0, h = E(dy + dh) - y0;
+      const f = src[name].f;
+      g.drawImage(img, f[0] * u, f[1] * u, f[2] * u, f[3] * u, x0, y0, w, h);
+      const o = over[name];
+      if (o) g.drawImage(img, o[0] * u, o[1] * u, o[2] * u, o[3] * u, x0, y0, w, h);
     }
 
-    part('legL', bodyX, 20, 4, 12, 4, over.legL);
-    part('legR', bodyX + 4, 20, 4, 12, 4, over.legR);
-    part('body', bodyX, 8, 8, 12, 4, over.body);
-    part('armL', 0, 8, aw, 12, 4, over.armL);
-    part('armR', bodyX + 8, 8, aw, 12, 4, over.armR);
-    part('head', bodyX, 0, 8, 8, 8, over.head);
+    part('legL', bodyX, 20, 4, 12);
+    part('legR', bodyX + 4, 20, 4, 12);
+    part('body', bodyX, 8, 8, 12);
+    part('armL', 0, 8, aw, 12);
+    part('armR', bodyX + 8, 8, aw, 12);
+    part('head', bodyX, 0, 8, 8);
 
     return c;
   }
@@ -498,27 +502,33 @@
       c = imageCanvas(state.char);
     }
 
-    const x = state.side === 'right' ? W - c.width + 40 : -40;
-    const y = H - c.height + 34;
+    const x = Math.round(state.side === 'right' ? W - c.width + 30 : -30);
+    const y = Math.round(H - c.height + 26);
 
     if (state.shadow) {
       const m = tint(c, '#000000');
       ctx.save();
-      ctx.filter = 'blur(18px)';
-      ctx.globalAlpha = 0.5;
-      ctx.drawImage(m, x + 6, y + 18);
+      ctx.filter = 'blur(16px)';
+      ctx.globalAlpha = 0.45;
+      ctx.drawImage(m, x + 6, y + 16);
       ctx.restore();
     }
 
     if (state.outline) {
       const white = tint(c, '#ffffff');
-      const dark = tint(c, '#05070a');
-      const steps = 20;
-      const R = 8, Rb = 15;
+      const dark = tint(c, '#0b1016');
+      const R = Math.max(4, Math.round(c.height * 0.014));
+      const Rb = Math.round(R * 1.5);
+      const steps = 36;
+
+      ctx.save();
+      ctx.globalAlpha = 0.55;
       for (let i = 0; i < steps; i++) {
         const a = (i / steps) * Math.PI * 2;
         ctx.drawImage(dark, x + Math.cos(a) * Rb, y + Math.sin(a) * Rb);
       }
+      ctx.restore();
+
       for (let i = 0; i < steps; i++) {
         const a = (i / steps) * Math.PI * 2;
         ctx.drawImage(white, x + Math.cos(a) * R, y + Math.sin(a) * R);
@@ -602,8 +612,8 @@
     const flip = state.side === 'left';
     const M = function (x) { return flip ? W - x : x; };
 
-    const x1 = M(250), y1 = 622;
-    const x2 = M(660), y2 = 622;
+    const x1 = M(250), y1 = 628;
+    const x2 = M(660), y2 = 628;
     const tail = 30, head = 62;
 
     const dx = x2 - x1, dy = y2 - y1;
@@ -629,8 +639,8 @@
     ctx.closePath();
 
     ctx.shadowColor = 'rgba(0,0,0,.45)';
-    ctx.shadowBlur = 18;
-    ctx.shadowOffsetY = 10;
+    ctx.shadowBlur = 16;
+    ctx.shadowOffsetY = 8;
     const grad = ctx.createLinearGradient(0, y1 - tail * 1.6, 0, y1 + tail * 1.6);
     grad.addColorStop(0, '#ffc04a');
     grad.addColorStop(0.5, '#f97b21');
@@ -647,9 +657,9 @@
   }
 
   function grade() {
-    const v = ctx.createRadialGradient(W / 2, H * 0.42, H * 0.32, W / 2, H * 0.5, H * 1.02);
+    const v = ctx.createRadialGradient(W / 2, H * 0.42, H * 0.34, W / 2, H * 0.5, H * 1.02);
     v.addColorStop(0, 'rgba(0,0,0,0)');
-    v.addColorStop(1, 'rgba(0,0,0,.38)');
+    v.addColorStop(1, 'rgba(0,0,0,.34)');
     ctx.fillStyle = v;
     ctx.fillRect(0, 0, W, H);
   }
