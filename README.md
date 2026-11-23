@@ -1,17 +1,23 @@
 # BlockThumb
 
-Minecraft-Thumbnail-Generator im EinfachGustaf-Look - eine einzige HTML-Datei, kein Server, kein Build.
+Thumbnail-Generator im EinfachGustaf-Look: eine einzelne `index.html`, alles im Browser (Canvas), kein Build.
 
 ## Nutzung
 
-1. Seite oeffnen (`index.html` lokal oder die GitHub-Pages-URL).
-2. Hintergrundbild waehlen; ohne Upload wird ein Platzhalter-Biom gezeichnet.
-3. Charakter-PNG mit Transparenz waehlen, Groesse und Seite einstellen.
-4. Headline eintippen: eine Zeile pro Zeile, Akzentwort in `|...|` setzen.
-5. Kontur / Schatten / Pfeil nach Bedarf schalten, dann **Thumbnail herunterladen** -> 1280x720 JPG.
+1. Seite öffnen: https://likuopas.github.io/blockthumb/
+2. Optional Hintergrundbild hochladen. Ohne Upload zeichnet die Seite eine Blockwelt: gestufte Hügel, Grasfeld mit Blockraster, Bäume und Blockwolken.
+3. Charakter hochladen:
+   - **Skin 64×64** (128×128 geht auch) – wird zur Figur gerendert.
+     - Klassisches Modell: 4 px breite Arme.
+     - Slim-Modell (Alex): 3 px breite Arme, wird an den Außenkanten der Armtextur erkannt und nicht gestreckt.
+   - **Altes 64×32-Layout** – Arme und Beine werden gespiegelt, damit die Figur vollständig ist.
+   - **Fertiges PNG** mit Transparenz – wird direkt eingesetzt.
+   - Falls die Erkennung daneben liegt: Feld „Modell“ auf „klassisch“ oder „slim“ stellen.
+4. Headline ist optional. Leer gelassen erscheint **kein Text** im Thumbnail, so wie in den Vorlagen. Wenn Text gewünscht ist: eine Zeile pro Textzeile, `|…|` färbt einzelne Wörter in der Akzentfarbe.
+5. „Thumbnail herunterladen“ speichert ein 1280×720-JPG.
 
 ## Hinweise
 
-- Die weisse Kontur braucht ein PNG mit Alpha-Kanal; bei einem JPG entsteht ein Rahmen ums ganze Rechteck.
-- Der Download haengt den Anchor vor dem Klick an `<body>` (noetig fuer Safari/iOS) und faengt `toDataURL`-Fehler ab.
-- Alles laeuft lokal im Browser: keine Requests, keine Tracker, keine Abhaengigkeiten.
+- Kontur, Schatten und oranger Pfeil lassen sich einzeln abschalten.
+- Der Pfeil zeigt automatisch zur Seite, auf der der Charakter steht.
+- Alles läuft lokal im Browser, es werden keine Bilder hochgeladen.
