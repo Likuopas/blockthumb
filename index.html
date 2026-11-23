@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BlockThumb – Thumbnail-Generator</title>
+<style>
+  *,*::before,*::after{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;background:#0b0f14;color:#f5f7fa}
+  .app{display:grid;grid-template-columns:340px minmax(0,1fr);min-height:100%}
+  .panel{background:#151b23;border-right:1px solid #26303b;padding:24px 20px;display:flex;flex-direction:column;gap:18px;overflow:auto}
+  .brand{display:flex;align-items:center;gap:12px;font-size:18px;font-weight:800;letter-spacing:-.01em}
+  .logo{width:32px;height:32px;border-radius:8px;background:#ffd400}
+  .label{font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#9aa6b2}
+  .field{display:flex;flex-direction:column;gap:6px}
+  input[type=text],textarea,select{width:100%;background:#1d252f;border:1px solid #26303b;border-radius:8px;color:#f5f7fa;font:inherit;padding:10px 12px}
+  textarea{min-height:84px;resize:vertical;line-height:1.35}
+  input[type=file]{width:100%;font-size:13px;color:#9aa6b2}
+  input[type=file]::file-selector-button{margin-right:10px;background:#1d252f;border:1px solid #26303b;color:#f5f7fa;padding:8px 12px;border-radius:8px;font:inherit;cursor:pointer}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .hint{font-size:12px;color:#9aa6b2}
+  .swatches{display:flex;gap:10px;align-items:center}
+  input[type=color]{width:44px;height:30px;padding:0;border:1px solid #26303b;border-radius:8px;background:#1d252f}
+  input[type=range]{width:100%}
+  .check{display:flex;align-items:center;gap:8px;font-size:13px}
+  .stage{display:flex;flex-direction:column;gap:16px;padding:24px;min-width:0}
+  canvas{width:100%;height:auto;display:block;border-radius:14px;background:#16283a;box-shadow:0 24px 64px rgba(0,0,0,.5)}
+  .btn{appearance:none;border:1px solid #26303b;background:#1d252f;color:#f5f7fa;font:inherit;font-weight:700;padding:12px 16px;border-radius:10px;cursor:pointer}
+  .btn.primary{background:#ffd400;color:#10151b;border-color:#ffd400}
+  .btn:active{transform:translateY(1px)}
+  .toolbar{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+  .meta{font-size:12px;color:#9aa6b2}
+  @media (max-width:860px){.app{grid-template-columns:1fr}.panel{border-right:0;border-bottom:1px solid #26303b}}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="panel">
+    <div class="brand"><span class="logo"></span>BlockThumb</div>
+
+    <div class="field">
+      <span class="label">Hintergrund</span>
+      <input type="file" id="bgFile" accept="image/*" />
+      <span class="hint">Ohne Upload wird ein Platzhalter-Biom gezeichnet.</span>
+    </div>
+
+    <div class="field">
+      <span class="label">Charakter (PNG mit Transparenz)</span>
+      <input type="file" id="charFile" accept="image/*" />
+      <div class="field">
+        <span class="label">Größe</span>
+        <input type="range" id="charSize" min="320" max="760" value="640" />
+      </div>
+      <div class="field">
+        <span class="label">Seite</span>
+        <select id="charSide">
+          <option value="right">rechts</option>
+          <option value="left">links</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="field">
+      <span class="label">Headline</span>
+      <textarea id="headline" spellcheck="false">ICH ZÄHME
+DRACHEN |IN| MINECRAFT</textarea>
+      <span class="hint">Eine Headline-Zeile pro Textzeile. Text zwischen |…| erscheint in der Akzentfarbe.</span>
+    </div>
+
+    <div class="field">
+      <span class="label">Akzentfarbe</span>
+      <div class="swatches">
+        <input type="color" id="accent" value="#ffd400" />
+        <span class="hint">für Akzentwörter, Pfeil und Rahmen</span>
+      </div>
+    </div>
+
+    <div class="field">
+      <span class="label">Effekte</span>
+      <label class="check"><input type="checkbox" id="outline" checked /> Weiße Kontur</label>
+      <label class="check"><input type="checkbox" id="shadow" checked /> Schatten</label>
+      <label class="check"><input type="checkbox" id="arrow" checked /> Oranger Pfeil</label>
+    </div>
+  </aside>
+
+  <main class="stage">
+    <div class="toolbar">
+      <div>
+        <div style="font-size:18px;font-weight:800">Vorschau</div>
+        <div class="meta">1280 × 720 · JPG · Export direkt im Browser</div>
+      </div>
+      <button class="btn primary" id="download">Thumbnail herunterladen</button>
+    </div>
+    <canvas id="preview" width="1280" height="720"></canvas>
+  </main>
+</div>
+
+<script>
+(() => {
+  'use strict';
+  const W = 1280, H = 720;
+  const cv = document.getElementById('preview');
+  const ctx = cv.getContext('2d');
+  const $ = id => document.getElementById(id);
+
+  const state = {
+    bg: null, char: null, charSize: 640, side: 'right',
+    lines: [], accent: '#ffd400',
+    outline: true, shadow: true, arrow: true
+  };
+
+  function tint(src, color) {
+    const c = document.createElement('canvas');
+    c.width = src.width;
+    c.height = src.height;
+    const x = c.getContext('2d');
+    x.drawImage(src, 0, 0);
+    x.globalCompositeOperation = 'source-in';
+    x.fillStyle = color;
+    x.fillRect(0, 0, c.width, c.height);
+    return c;
+  }
+
+  function cover(img) {
+    const s = Math.max(W / img.width, H / img.height);
+    const w = img.width * s, h = img.height * s;
+    ctx.drawImage(img, (W - w) / 2, (H - h) / 2, w, h);
+  }
+
+  function placeholder() {
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, '#5ec3f5');
+    g.addColorStop(0.62, '#8fd9f8');
+    g.addColorStop(1, '#cdefff');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.fillStyle = 'rgba(255,255,255,.9)';
+    [[210, 150, 120], [520, 110, 90], [1010, 170, 130]].forEach(function (c) {
+      ctx.beginPath();
+      ctx.ellipse(c[0], c[1], c[2], c[2] * 0.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    for (let x = -64; x < W + 64; x += 64) {
+      for (let y = 470; y < H + 64; y += 64) {
+        ctx.fillStyle = '#56aa3e';
+        ctx.fillRect(x, y, 62, 62);
+        ctx.strokeStyle = 'rgba(0,0,0,.18)';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(x, y, 62, 62);
+      }
+    }
+  }
+
+  function drawCharacter() {
+    const img = state.char;
+    const h = state.charSize;
+    const w = Math.round(img.width * (h / img.height));
+    const x = state.side === 'right' ? W - w + 40 : -40;
+    const y = H - h + 40;
+
+    const c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    c.getContext('2d').drawImage(img, 0, 0, w, h);
+
+    if (state.shadow) {
+      const m = tint(c, '#000000');
+      ctx.save();
+      ctx.filter = 'blur(16px)';
+      ctx.globalAlpha = 0.55;
+      ctx.drawImage(m, x + 4, y + 16);
+      ctx.restore();
+    }
+
+    if (state.outline) {
+      const wm = tint(c, '#ffffff');
+      const r = 9, steps = 24;
+      for (let i = 0; i < steps; i++) {
+        const a = (i / steps) * Math.PI * 2;
+        ctx.drawImage(wm, x + Math.cos(a) * r, y + Math.sin(a) * r);
+      }
+    }
+
+    ctx.drawImage(c, x, y);
+  }
+
+  function drawHeadline() {
+    const lines = state.lines.filter(function (l) { return l.trim() !== ''; });
+    if (!lines.length) return;
+
+    const charPresent = !!state.char;
+    const onLeft = charPresent && state.side === 'left';
+    const maxW = onLeft ? 600 : (charPresent ? 780 : 1180);
+    const x0 = onLeft ? 620 : 56;
+
+    let size = 108;
+    const setFont = function (s) {
+      ctx.font = '900 ' + s + 'px "Arial Black","Segoe UI",system-ui,Arial,sans-serif';
+    };
+    const plain = lines.map(function (l) { return l.replace(/\|/g, ''); });
+    const widest = function () {
+      let max = 0;
+      for (let i = 0; i < plain.length; i++) {
+        const wv = ctx.measureText(plain[i]).width;
+        if (wv > max) max = wv;
+      }
+      return max;
+    };
+
+    setFont(size);
+    while (size > 40 && widest() > maxW) {
+      size -= 4;
+      setFont(size);
+    }
+
+    const lead = size * 0.92;
+    const blockH = lead * lines.length;
+    let y = Math.max(48, (H - blockH) / 2);
+
+    ctx.textBaseline = 'top';
+    ctx.lineJoin = 'round';
+    ctx.miterLimit = 2;
+
+    for (let li = 0; li < lines.length; li++) {
+      let x = x0;
+      const parts = lines[li].split('|');
+      for (let i = 0; i < parts.length; i++) {
+        const part = parts[i];
+        if (!part) continue;
+        ctx.save();
+        ctx.shadowColor = 'rgba(0,0,0,.55)';
+        ctx.shadowBlur = 10;
+        ctx.shadowOffsetY = 6;
+        ctx.lineWidth = Math.max(7, size * 0.13);
+        ctx.strokeStyle = 'rgba(0,0,0,.94)';
+        ctx.strokeText(part, x, y);
+        ctx.restore();
+        ctx.fillStyle = i % 2 ? state.accent : '#ffffff';
+        ctx.fillText(part, x, y);
+        x += ctx.measureText(part).width;
+      }
+      y += lead;
+    }
+  }
+
+  function drawArrow() {
+    const x1 = 300, y1 = 626, x2 = 640, y2 = 626;
+    const tail = 26, head = 54;
+    const dx = x2 - x1, dy = y2 - y1;
+    const len = Math.hypot(dx, dy) || 1;
+    const ux = dx / len, uy = dy / len;
+    const px = -uy, py = ux;
+    const bx = x2 - ux * head * 0.7, by = y2 - uy * head * 0.7;
+
+    const pts = [
+      [x1 + px * tail, y1 + py * tail],
+      [bx + px * tail, by + py * tail],
+      [bx + px * head, by + py * head],
+      [x2, y2],
+      [bx - px * head, by - py * head],
+      [bx - px * tail, by - py * tail],
+      [x1 - px * tail, y1 - py * tail]
+    ];
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+    ctx.closePath();
+    ctx.fillStyle = '#ff7a1a';
+    ctx.fill();
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 9;
+    ctx.strokeStyle = '#0b0f14';
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+    if (state.bg) cover(state.bg);
+    else placeholder();
+    if (state.char) drawCharacter();
+    drawHeadline();
+    if (state.arrow) drawArrow();
+  }
+
+  function readHeadline() {
+    state.lines = $('headline').value.split('\n');
+  }
+
+  function loadFile(input, key) {
+    input.addEventListener('change', function (e) {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      const img = new Image();
+      img.onload = function () {
+        state[key] = img;
+        draw();
+      };
+      img.onerror = function () {
+        alert('Bild konnte nicht geladen werden.');
+      };
+      img.src = URL.createObjectURL(file);
+    });
+  }
+
+  loadFile($('bgFile'), 'bg');
+  loadFile($('charFile'), 'char');
+
+  $('charSize').addEventListener('input', function (e) {
+    state.charSize = Number(e.target.value);
+    draw();
+  });
+  $('charSide').addEventListener('change', function (e) {
+    state.side = e.target.value;
+    draw();
+  });
+  $('accent').addEventListener('input', function (e) {
+    state.accent = e.target.value;
+    draw();
+  });
+  $('headline').addEventListener('input', function () {
+    readHeadline();
+    draw();
+  });
+  ['outline', 'shadow', 'arrow'].forEach(function (id) {
+    $(id).addEventListener('change', function (e) {
+      state[id] = e.target.checked;
+      draw();
+    });
+  });
+
+  $('download').addEventListener('click', function () {
+    draw();
+
+    let href;
+    try {
+      href = cv.toDataURL('image/jpeg', 0.92);
+    } catch (err) {
+      alert('Export fehlgeschlagen: ' + (err && err.message ? err.message : err));
+      return;
+    }
+
+    const a = document.createElement('a');
+    a.download = 'blockthumb-1280x720.jpg';
+    a.href = href;
+    a.rel = 'noopener';
+    a.style.display = 'none';
+
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () {
+      if (a.parentNode) a.parentNode.removeChild(a);
+    }, 1000);
+  });
+
+  readHeadline();
+  draw();
+})();
+</script>
+</body>
+</html>
