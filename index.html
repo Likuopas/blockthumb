@@ -4,6 +4,9 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>BlockThumb – Thumbnail-Generator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Anton&display=swap" rel="stylesheet" />
 <style>
   *,*::before,*::after{box-sizing:border-box}
   html,body{margin:0;height:100%}
@@ -15,7 +18,7 @@
   .label{font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:#9aa6b2}
   .field{display:flex;flex-direction:column;gap:6px}
   input[type=text],textarea,select{width:100%;background:#1d252f;border:1px solid #26303b;border-radius:8px;color:#f5f7fa;font:inherit;padding:10px 12px}
-  textarea{min-height:84px;resize:vertical;line-height:1.35}
+  textarea{min-height:84px;resize:vertical;line-height:1.35;font-family:Anton,Impact,"Arial Black",sans-serif;font-size:17px;letter-spacing:.02em}
   input[type=file]{width:100%;font-size:13px;color:#9aa6b2}
   input[type=file]::file-selector-button{margin-right:10px;background:#1d252f;border:1px solid #26303b;color:#f5f7fa;padding:8px 12px;border-radius:8px;font:inherit;cursor:pointer}
   .row{display:flex;align-items:center;justify-content:space-between;gap:12px}
@@ -42,7 +45,7 @@
     <div class="field">
       <span class="label">Hintergrund</span>
       <input type="file" id="bgFile" accept="image/*" />
-      <span class="hint">Ohne Upload wird ein Platzhalter-Biom gezeichnet.</span>
+      <span class="hint">Ohne Upload zeichnet die Seite eine Voxel-Landschaft als Platzhalter.</span>
     </div>
 
     <div class="field">
@@ -64,7 +67,7 @@
     <div class="field">
       <span class="label">Headline</span>
       <textarea id="headline" spellcheck="false">ICH ZÄHME
-DRACHEN |IN| MINECRAFT</textarea>
+|DRACHEN|</textarea>
       <span class="hint">Eine Headline-Zeile pro Textzeile. Text zwischen |…| erscheint in der Akzentfarbe.</span>
     </div>
 
@@ -72,7 +75,7 @@ DRACHEN |IN| MINECRAFT</textarea>
       <span class="label">Akzentfarbe</span>
       <div class="swatches">
         <input type="color" id="accent" value="#ffd400" />
-        <span class="hint">für Akzentwörter, Pfeil und Rahmen</span>
+        <span class="hint">für Akzentwörter und Pfeil</span>
       </div>
     </div>
 
@@ -110,6 +113,8 @@ DRACHEN |IN| MINECRAFT</textarea>
     outline: true, shadow: true, arrow: true
   };
 
+  const FONT = s => '400 ' + s + 'px Anton, Impact, "Arial Black", sans-serif';
+
   function tint(src, color) {
     const c = document.createElement('canvas');
     c.width = src.width;
@@ -128,29 +133,111 @@ DRACHEN |IN| MINECRAFT</textarea>
     ctx.drawImage(img, (W - w) / 2, (H - h) / 2, w, h);
   }
 
+  function rnd(seed) {
+    let s = seed;
+    return function () {
+      s = (s * 1103515245 + 12345) % 2147483648;
+      return s / 2147483648;
+    };
+  }
+
+  function cloud(cx, cy, s, alpha) {
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(cx - 3 * s, cy, 6 * s, s);
+    ctx.fillRect(cx - 2 * s, cy - s, 4.5 * s, s);
+    ctx.fillRect(cx - s, cy - 2 * s, 2 * s, s);
+    ctx.fillStyle = 'rgba(126,170,205,.5)';
+    ctx.fillRect(cx - 3 * s, cy + s - Math.max(3, s * 0.18), 6 * s, Math.max(3, s * 0.18));
+    ctx.globalAlpha = 1;
+  }
+
   function placeholder() {
-    const g = ctx.createLinearGradient(0, 0, 0, H);
-    g.addColorStop(0, '#5ec3f5');
-    g.addColorStop(0.62, '#8fd9f8');
-    g.addColorStop(1, '#cdefff');
-    ctx.fillStyle = g;
+    const gy = 470;
+
+    const sky = ctx.createLinearGradient(0, 0, 0, gy + 90);
+    sky.addColorStop(0, '#2b78bd');
+    sky.addColorStop(0.45, '#7fc6e8');
+    sky.addColorStop(0.82, '#d6eef9');
+    ctx.fillStyle = sky;
     ctx.fillRect(0, 0, W, H);
 
-    ctx.fillStyle = 'rgba(255,255,255,.9)';
-    [[210, 150, 120], [520, 110, 90], [1010, 170, 130]].forEach(function (c) {
-      ctx.beginPath();
-      ctx.ellipse(c[0], c[1], c[2], c[2] * 0.5, 0, 0, Math.PI * 2);
-      ctx.fill();
-    });
+    const sun = ctx.createRadialGradient(W * 0.76, H * 0.18, 8, W * 0.76, H * 0.18, 300);
+    sun.addColorStop(0, 'rgba(255,249,214,.95)');
+    sun.addColorStop(0.3, 'rgba(255,238,170,.35)');
+    sun.addColorStop(1, 'rgba(255,238,170,0)');
+    ctx.fillStyle = sun;
+    ctx.fillRect(0, 0, W, H);
 
-    for (let x = -64; x < W + 64; x += 64) {
-      for (let y = 470; y < H + 64; y += 64) {
-        ctx.fillStyle = '#56aa3e';
-        ctx.fillRect(x, y, 62, 62);
-        ctx.strokeStyle = 'rgba(0,0,0,.18)';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(x, y, 62, 62);
-      }
+    ctx.fillStyle = 'rgba(126,168,203,.55)';
+    ctx.beginPath();
+    ctx.moveTo(-40, gy);
+    ctx.lineTo(120, 330);
+    ctx.lineTo(240, 430);
+    ctx.lineTo(360, 300);
+    ctx.lineTo(520, gy);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.fillStyle = 'rgba(150,190,220,.45)';
+    ctx.beginPath();
+    ctx.moveTo(700, gy);
+    ctx.lineTo(860, 340);
+    ctx.lineTo(980, 420);
+    ctx.lineTo(1100, 320);
+    ctx.lineTo(1330, gy);
+    ctx.closePath();
+    ctx.fill();
+
+    cloud(230, 150, 26, 0.95);
+    cloud(640, 110, 20, 0.9);
+    cloud(1000, 180, 30, 0.92);
+    cloud(1240, 96, 16, 0.8);
+
+    const haze = ctx.createLinearGradient(0, gy - 130, 0, gy + 40);
+    haze.addColorStop(0, 'rgba(214,238,249,0)');
+    haze.addColorStop(1, 'rgba(214,238,249,.85)');
+    ctx.fillStyle = haze;
+    ctx.fillRect(0, gy - 130, W, 170);
+
+    const ground = ctx.createLinearGradient(0, gy, 0, H);
+    ground.addColorStop(0, '#63bd40');
+    ground.addColorStop(0.5, '#4fa732');
+    ground.addColorStop(1, '#347e25');
+    ctx.fillStyle = ground;
+    ctx.fillRect(0, gy, W, H - gy);
+
+    for (let x = -32; x < W + 32; x += 64) {
+      ctx.fillStyle = '#74cf4b';
+      ctx.fillRect(x, gy - 10, 62, 12);
+      ctx.fillStyle = 'rgba(0,0,0,.10)';
+      ctx.fillRect(x, gy + 2, 62, 4);
+    }
+
+    const rand = rnd(7);
+    for (let i = 0; i < 30; i++) {
+      const px = rand() * W;
+      const py = gy + 34 + rand() * (H - gy - 44);
+      const ps = 26 + rand() * 54;
+      ctx.fillStyle = 'rgba(20,64,16,' + (0.04 + rand() * 0.07).toFixed(3) + ')';
+      ctx.fillRect(px, py, ps, ps * 0.55);
+    }
+
+    ctx.strokeStyle = 'rgba(0,0,0,.09)';
+    ctx.lineWidth = 2;
+    for (let x = 0; x <= W; x += 96) {
+      ctx.beginPath();
+      ctx.moveTo(x, gy);
+      ctx.lineTo(x + (x - W / 2) * 0.35, H);
+      ctx.stroke();
+    }
+    let step = 26;
+    for (let y = gy + 22; y < H; y += step) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(W, y);
+      ctx.stroke();
+      step *= 1.18;
     }
   }
 
@@ -169,22 +256,45 @@ DRACHEN |IN| MINECRAFT</textarea>
     if (state.shadow) {
       const m = tint(c, '#000000');
       ctx.save();
-      ctx.filter = 'blur(16px)';
-      ctx.globalAlpha = 0.55;
-      ctx.drawImage(m, x + 4, y + 16);
+      ctx.filter = 'blur(18px)';
+      ctx.globalAlpha = 0.5;
+      ctx.drawImage(m, x + 6, y + 18);
       ctx.restore();
     }
 
     if (state.outline) {
-      const wm = tint(c, '#ffffff');
-      const r = 9, steps = 24;
+      const white = tint(c, '#ffffff');
+      const dark = tint(c, '#05070a');
+      const steps = 20;
+      const R = 8, Rb = 15;
       for (let i = 0; i < steps; i++) {
         const a = (i / steps) * Math.PI * 2;
-        ctx.drawImage(wm, x + Math.cos(a) * r, y + Math.sin(a) * r);
+        ctx.drawImage(dark, x + Math.cos(a) * Rb, y + Math.sin(a) * Rb);
+      }
+      for (let i = 0; i < steps; i++) {
+        const a = (i / steps) * Math.PI * 2;
+        ctx.drawImage(white, x + Math.cos(a) * R, y + Math.sin(a) * R);
       }
     }
 
     ctx.drawImage(c, x, y);
+  }
+
+  function sticker(part, x, y, size, color) {
+    ctx.font = FONT(size);
+    ctx.textBaseline = 'top';
+
+    ctx.fillStyle = 'rgba(4,8,12,.55)';
+    ctx.fillText(part, x + size * 0.035, y + size * 0.075);
+
+    ctx.lineJoin = 'round';
+    ctx.miterLimit = 2;
+    ctx.lineWidth = Math.max(9, size * 0.17);
+    ctx.strokeStyle = '#05070a';
+    ctx.strokeText(part, x, y);
+
+    ctx.fillStyle = color;
+    ctx.fillText(part, x, y);
   }
 
   function drawHeadline() {
@@ -193,13 +303,10 @@ DRACHEN |IN| MINECRAFT</textarea>
 
     const charPresent = !!state.char;
     const onLeft = charPresent && state.side === 'left';
-    const maxW = onLeft ? 600 : (charPresent ? 780 : 1180);
-    const x0 = onLeft ? 620 : 56;
+    const maxW = onLeft ? 600 : (charPresent ? 720 : 1120);
+    const x0 = onLeft ? 640 : 62;
 
-    let size = 108;
-    const setFont = function (s) {
-      ctx.font = '900 ' + s + 'px "Arial Black","Segoe UI",system-ui,Arial,sans-serif';
-    };
+    let size = 138;
     const plain = lines.map(function (l) { return l.replace(/\|/g, ''); });
     const widest = function () {
       let max = 0;
@@ -210,19 +317,15 @@ DRACHEN |IN| MINECRAFT</textarea>
       return max;
     };
 
-    setFont(size);
-    while (size > 40 && widest() > maxW) {
+    ctx.font = FONT(size);
+    while (size > 44 && widest() > maxW) {
       size -= 4;
-      setFont(size);
+      ctx.font = FONT(size);
     }
 
-    const lead = size * 0.92;
+    const lead = size * 0.86;
     const blockH = lead * lines.length;
-    let y = Math.max(48, (H - blockH) / 2);
-
-    ctx.textBaseline = 'top';
-    ctx.lineJoin = 'round';
-    ctx.miterLimit = 2;
+    let y = Math.max(56, (H - blockH) / 2);
 
     for (let li = 0; li < lines.length; li++) {
       let x = x0;
@@ -230,16 +333,8 @@ DRACHEN |IN| MINECRAFT</textarea>
       for (let i = 0; i < parts.length; i++) {
         const part = parts[i];
         if (!part) continue;
-        ctx.save();
-        ctx.shadowColor = 'rgba(0,0,0,.55)';
-        ctx.shadowBlur = 10;
-        ctx.shadowOffsetY = 6;
-        ctx.lineWidth = Math.max(7, size * 0.13);
-        ctx.strokeStyle = 'rgba(0,0,0,.94)';
-        ctx.strokeText(part, x, y);
-        ctx.restore();
-        ctx.fillStyle = i % 2 ? state.accent : '#ffffff';
-        ctx.fillText(part, x, y);
+        sticker(part, x, y, size, i % 2 ? state.accent : '#ffffff');
+        ctx.font = FONT(size);
         x += ctx.measureText(part).width;
       }
       y += lead;
@@ -247,13 +342,13 @@ DRACHEN |IN| MINECRAFT</textarea>
   }
 
   function drawArrow() {
-    const x1 = 300, y1 = 626, x2 = 640, y2 = 626;
-    const tail = 26, head = 54;
+    const x1 = 260, y1 = 620, x2 = 660, y2 = 620;
+    const tail = 30, head = 62;
     const dx = x2 - x1, dy = y2 - y1;
     const len = Math.hypot(dx, dy) || 1;
     const ux = dx / len, uy = dy / len;
     const px = -uy, py = ux;
-    const bx = x2 - ux * head * 0.7, by = y2 - uy * head * 0.7;
+    const bx = x2 - ux * head * 0.72, by = y2 - uy * head * 0.72;
 
     const pts = [
       [x1 + px * tail, y1 + py * tail],
@@ -270,13 +365,31 @@ DRACHEN |IN| MINECRAFT</textarea>
     ctx.moveTo(pts[0][0], pts[0][1]);
     for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
     ctx.closePath();
-    ctx.fillStyle = '#ff7a1a';
+
+    ctx.shadowColor = 'rgba(0,0,0,.45)';
+    ctx.shadowBlur = 18;
+    ctx.shadowOffsetY = 10;
+    const grad = ctx.createLinearGradient(0, y1 - tail * 1.6, 0, y1 + tail * 1.6);
+    grad.addColorStop(0, '#ffc04a');
+    grad.addColorStop(0.5, '#f97b21');
+    grad.addColorStop(1, '#dd5a0d');
+    ctx.fillStyle = grad;
     ctx.fill();
+
+    ctx.shadowColor = 'transparent';
     ctx.lineJoin = 'round';
-    ctx.lineWidth = 9;
-    ctx.strokeStyle = '#0b0f14';
+    ctx.lineWidth = 10;
+    ctx.strokeStyle = '#0a0d12';
     ctx.stroke();
     ctx.restore();
+  }
+
+  function grade() {
+    const v = ctx.createRadialGradient(W / 2, H * 0.42, H * 0.32, W / 2, H * 0.5, H * 1.02);
+    v.addColorStop(0, 'rgba(0,0,0,0)');
+    v.addColorStop(1, 'rgba(0,0,0,.42)');
+    ctx.fillStyle = v;
+    ctx.fillRect(0, 0, W, H);
   }
 
   function draw() {
@@ -286,6 +399,7 @@ DRACHEN |IN| MINECRAFT</textarea>
     if (state.char) drawCharacter();
     drawHeadline();
     if (state.arrow) drawArrow();
+    grade();
   }
 
   function readHeadline() {
@@ -358,8 +472,17 @@ DRACHEN |IN| MINECRAFT</textarea>
     }, 1000);
   });
 
-  readHeadline();
-  draw();
+  function boot() {
+    readHeadline();
+    draw();
+    if (document.fonts && document.fonts.load) {
+      document.fonts.load('400 120px Anton').then(draw).catch(function () {});
+      document.fonts.ready.then(draw);
+    }
+  }
+
+  window.addEventListener('load', draw);
+  boot();
 })();
 </script>
 </body>
