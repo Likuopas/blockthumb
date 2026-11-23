@@ -5,7 +5,7 @@ Thumbnail-Generator im EinfachGustaf-Look: eine einzelne `index.html`, alles im 
 ## Nutzung
 
 1. Seite öffnen: https://likuopas.github.io/blockthumb/
-2. Optional Hintergrundbild hochladen. Ohne Upload zeichnet die Seite eine Blockwelt: gestufte Hügel, Grasfeld mit Blockraster, Bäume und Blockwolken.
+2. Optional Hintergrundbild hochladen. Ohne Upload zeichnet die Seite eine Minecraft-Wiese wie auf einem Spiel-Screenshot: blauer Himmel mit Blockwolken, Baumreihe und Blockhügel am Horizont, davor ein Grasfeld mit Blockraster und Grashalmen.
 3. Charakter hochladen:
    - **Skin 64×64** (128×128 geht auch) – wird zur Figur gerendert.
      - Klassisches Modell: 4 px breite Arme.
@@ -20,4 +20,5 @@ Thumbnail-Generator im EinfachGustaf-Look: eine einzelne `index.html`, alles im 
 
 - Kontur, Schatten und oranger Pfeil lassen sich einzeln abschalten.
 - Der Pfeil zeigt automatisch zur Seite, auf der der Charakter steht.
+- Größe der Figur über den Regler (240–760 px).
 - Alles läuft lokal im Browser, es werden keine Bilder hochgeladen.
