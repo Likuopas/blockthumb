@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>BlockThumb – Thumbnail-Generator</title>
+<title>BlockThumb – Minecraft-Thumbnail-Generator</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Anton&display=swap" rel="stylesheet" />
@@ -20,7 +20,7 @@
   input[type=text],textarea,select{width:100%;background:#1d252f;border:1px solid #26303b;border-radius:8px;color:#f5f7fa;font:inherit;padding:10px 12px}
   textarea{min-height:84px;resize:vertical;line-height:1.35;font-family:Anton,Impact,"Arial Black",sans-serif;font-size:17px;letter-spacing:.02em}
   input[type=file]{width:100%;font-size:13px;color:#9aa6b2}
-  input[type=file]::file-selector-button{margin-right:10px;background:#1d252f;border:1px solid #26303b;color:#f5f7fa;padding:8px 12px;border-radius:8px;font:inherit;cursor:pointer}
+  input[type=file]::-webkit-file-upload-button{margin-right:10px;background:#1d252f;border:1px solid #26303b;color:#f5f7fa;padding:8px 12px;border-radius:8px;font:inherit;cursor:pointer}
   .row{display:flex;align-items:center;justify-content:space-between;gap:12px}
   .hint{font-size:12px;color:#9aa6b2}
   .hint.ok{color:#7cff6b}
@@ -46,16 +46,24 @@
     <div class="field">
       <span class="label">Hintergrund</span>
       <input type="file" id="bgFile" accept="image/*" />
-      <span class="hint">Ohne Upload zeichnet die Seite eine Voxel-Landschaft als Platzhalter.</span>
+      <span class="hint">Ohne Upload zeichnet die Seite eine Minecraft-Welt: Voxel-Hügel, Bäume, Grasfeld, Blockwolken.</span>
     </div>
 
     <div class="field">
       <span class="label">Charakter – Skin oder PNG</span>
       <input type="file" id="charFile" accept="image/*" />
-      <span class="hint" id="charInfo">Skin 64×64 wird automatisch zur Figur gerendert; ein fertiges PNG mit Transparenz wird direkt eingesetzt.</span>
+      <span class="hint" id="charInfo">Skin 64×64 oder altes 64×32 wird automatisch zur Figur gerendert.</span>
+      <div class="field">
+        <span class="label">Modell</span>
+        <select id="charModel">
+          <option value="auto">automatisch erkennen</option>
+          <option value="classic">klassisch (4 px Arme)</option>
+          <option value="slim">slim (3 px Arme)</option>
+        </select>
+      </div>
       <div class="field">
         <span class="label">Größe</span>
-        <input type="range" id="charSize" min="320" max="760" value="640" />
+        <input type="range" id="charSize" min="320" max="760" value="620" />
       </div>
       <div class="field">
         <span class="label">Seite</span>
@@ -68,9 +76,8 @@
 
     <div class="field">
       <span class="label">Headline</span>
-      <textarea id="headline" spellcheck="false">ICH ZÄHME
-|DRACHEN|</textarea>
-      <span class="hint">Eine Headline-Zeile pro Textzeile. Text zwischen |…| erscheint in der Akzentfarbe.</span>
+      <textarea id="headline" spellcheck="false" placeholder="Leer lassen – dann kein Text im Thumbnail"></textarea>
+      <span class="hint">Leer = Thumbnail ohne Text (so wie die Vorlagen). Eine Zeile pro Textzeile, Text zwischen |…| in der Akzentfarbe.</span>
     </div>
 
     <div class="field">
@@ -104,18 +111,25 @@
 <script>
 (() => {
   'use strict';
-  const W = 1280, H = 720;
+
+  const W = 1280, H = 720, GY = 306;
   const cv = document.getElementById('preview');
   const ctx = cv.getContext('2d');
-  const $ = id => document.getElementById(id);
+  const $ = function (id) { return document.getElementById(id); };
 
   const state = {
-    bg: null, char: null, charSize: 640, side: 'right',
-    lines: [], accent: '#ffd400',
-    outline: true, shadow: true, arrow: true
+    bg: null, char: null, charSize: 620, side: 'right', model: 'auto',
+    lines: [], accent: '#ffd400', outline: true, shadow: true, arrow: true
   };
 
-  const FONT = s => '400 ' + s + 'px Anton, Impact, "Arial Black", sans-serif';
+  const FONT = function (s) { return '400 ' + s + 'px Anton, Impact, "Arial Black", sans-serif'; };
+
+  function hash(x, y) {
+    const s = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
+    return s - Math.floor(s);
+  }
+
+  function lerp(a, b, t) { return a + (b - a) * t; }
 
   function tint(src, color) {
     const c = document.createElement('canvas');
@@ -130,162 +144,349 @@
   }
 
   function cover(img) {
-    const s = Math.max(W / img.width, H / img.height);
-    const w = img.width * s, h = img.height * s;
+    const sc = Math.max(W / img.width, H / img.height);
+    const w = img.width * sc, h = img.height * sc;
     ctx.drawImage(img, (W - w) / 2, (H - h) / 2, w, h);
   }
 
-  function rnd(seed) {
-    let s = seed;
+  /* ---------------------------------------------------------------
+     Welt: Minecraft-Welt mit Blockhügeln, Bäumen, Grasfeld
+     --------------------------------------------------------------- */
+
+  function drawSky(g) {
+    const sky = g.createLinearGradient(0, 0, 0, GY + 80);
+    sky.addColorStop(0, '#2b79c2');
+    sky.addColorStop(0.42, '#6cbbe8');
+    sky.addColorStop(0.78, '#b3e1f6');
+    sky.addColorStop(1, '#e7f6ff');
+    g.fillStyle = sky;
+    g.fillRect(0, 0, W, GY + 80);
+
+    const sx = W * 0.79, sy = H * 0.12;
+    const sun = g.createRadialGradient(sx, sy, 8, sx, sy, 300);
+    sun.addColorStop(0, 'rgba(255,253,232,.95)');
+    sun.addColorStop(0.3, 'rgba(255,246,196,.45)');
+    sun.addColorStop(1, 'rgba(255,246,196,0)');
+    g.fillStyle = sun;
+    g.fillRect(0, 0, W, GY + 80);
+  }
+
+  function drawCloud(g, cx, baseY, u, alpha) {
+    const rows = [
+      [baseY - 3 * u, -2 * u, 4 * u],
+      [baseY - 2 * u, -3.5 * u, 7 * u],
+      [baseY - 1 * u, -2.5 * u, 5 * u]
+    ];
+    g.save();
+    g.globalAlpha = alpha;
+    for (let i = 0; i < rows.length; i++) {
+      g.fillStyle = '#ffffff';
+      g.fillRect(cx + rows[i][1], rows[i][0], rows[i][2], u);
+    }
+    g.fillStyle = 'rgba(166,199,224,.55)';
+    g.fillRect(cx - 2.5 * u, baseY - u * 0.32, 5 * u, u * 0.32);
+    g.restore();
+  }
+
+  function drawClouds(g) {
+    drawCloud(g, 210, 148, 26, 0.95);
+    drawCloud(g, 565, 92, 20, 0.85);
+    drawCloud(g, 900, 162, 28, 0.92);
+    drawCloud(g, 1185, 70, 18, 0.8);
+  }
+
+  function hillHeights(n, base, amp, seed) {
+    const r = rng(seed);
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      const wave = 0.55 + 0.45 * Math.sin(i * 0.55 + seed);
+      out.push(Math.max(1, Math.round(base + amp * wave + (r() - 0.5) * 0.9)));
+    }
+    return out;
+  }
+
+  function rng(seed) {
+    let s = seed * 1000 + 7;
     return function () {
       s = (s * 1103515245 + 12345) % 2147483648;
       return s / 2147483648;
     };
   }
 
-  function cloud(cx, cy, s, alpha) {
-    ctx.globalAlpha = alpha;
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(cx - 3 * s, cy, 6 * s, s);
-    ctx.fillRect(cx - 2 * s, cy - s, 4.5 * s, s);
-    ctx.fillRect(cx - s, cy - 2 * s, 2 * s, s);
-    ctx.fillStyle = 'rgba(126,170,205,.5)';
-    ctx.fillRect(cx - 3 * s, cy + s - Math.max(3, s * 0.18), 6 * s, Math.max(3, s * 0.18));
-    ctx.globalAlpha = 1;
-  }
-
-  function placeholder() {
-    const gy = 470;
-
-    const sky = ctx.createLinearGradient(0, 0, 0, gy + 90);
-    sky.addColorStop(0, '#2b78bd');
-    sky.addColorStop(0.45, '#7fc6e8');
-    sky.addColorStop(0.82, '#d6eef9');
-    ctx.fillStyle = sky;
-    ctx.fillRect(0, 0, W, H);
-
-    const sun = ctx.createRadialGradient(W * 0.76, H * 0.18, 8, W * 0.76, H * 0.18, 300);
-    sun.addColorStop(0, 'rgba(255,249,214,.95)');
-    sun.addColorStop(0.3, 'rgba(255,238,170,.35)');
-    sun.addColorStop(1, 'rgba(255,238,170,0)');
-    ctx.fillStyle = sun;
-    ctx.fillRect(0, 0, W, H);
-
-    ctx.fillStyle = 'rgba(126,168,203,.55)';
-    ctx.beginPath();
-    ctx.moveTo(-40, gy);
-    ctx.lineTo(120, 330);
-    ctx.lineTo(240, 430);
-    ctx.lineTo(360, 300);
-    ctx.lineTo(520, gy);
-    ctx.closePath();
-    ctx.fill();
-
-    ctx.fillStyle = 'rgba(150,190,220,.45)';
-    ctx.beginPath();
-    ctx.moveTo(700, gy);
-    ctx.lineTo(860, 340);
-    ctx.lineTo(980, 420);
-    ctx.lineTo(1100, 320);
-    ctx.lineTo(1330, gy);
-    ctx.closePath();
-    ctx.fill();
-
-    cloud(230, 150, 26, 0.95);
-    cloud(640, 110, 20, 0.9);
-    cloud(1000, 180, 30, 0.92);
-    cloud(1240, 96, 16, 0.8);
-
-    const haze = ctx.createLinearGradient(0, gy - 130, 0, gy + 40);
-    haze.addColorStop(0, 'rgba(214,238,249,0)');
-    haze.addColorStop(1, 'rgba(214,238,249,.85)');
-    ctx.fillStyle = haze;
-    ctx.fillRect(0, gy - 130, W, 170);
-
-    const ground = ctx.createLinearGradient(0, gy, 0, H);
-    ground.addColorStop(0, '#63bd40');
-    ground.addColorStop(0.5, '#4fa732');
-    ground.addColorStop(1, '#347e25');
-    ctx.fillStyle = ground;
-    ctx.fillRect(0, gy, W, H - gy);
-
-    for (let x = -32; x < W + 32; x += 64) {
-      ctx.fillStyle = '#74cf4b';
-      ctx.fillRect(x, gy - 10, 62, 12);
-      ctx.fillStyle = 'rgba(0,0,0,.10)';
-      ctx.fillRect(x, gy + 2, 62, 4);
-    }
-
-    const rand = rnd(7);
-    for (let i = 0; i < 30; i++) {
-      const px = rand() * W;
-      const py = gy + 34 + rand() * (H - gy - 44);
-      const ps = 26 + rand() * 54;
-      ctx.fillStyle = 'rgba(20,64,16,' + (0.04 + rand() * 0.07).toFixed(3) + ')';
-      ctx.fillRect(px, py, ps, ps * 0.55);
-    }
-
-    ctx.strokeStyle = 'rgba(0,0,0,.09)';
-    ctx.lineWidth = 2;
-    for (let x = 0; x <= W; x += 96) {
-      ctx.beginPath();
-      ctx.moveTo(x, gy);
-      ctx.lineTo(x + (x - W / 2) * 0.35, H);
-      ctx.stroke();
-    }
-    let step = 26;
-    for (let y = gy + 22; y < H; y += step) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(W, y);
-      ctx.stroke();
-      step *= 1.18;
+  function drawRidge(g, x0, baseY, u, heights, pal) {
+    for (let i = 0; i < heights.length; i++) {
+      const h = heights[i];
+      for (let j = 0; j < h; j++) {
+        const x = x0 + i * u;
+        const y = baseY - (j + 1) * u;
+        const v = hash(i, j);
+        const top = j === h - 1;
+        g.fillStyle = top ? (v > 0.5 ? pal.grassA : pal.grassB) : (v > 0.5 ? pal.bodyA : pal.bodyB);
+        g.fillRect(x, y, u + 0.7, u + 0.7);
+        if (top) {
+          g.fillStyle = pal.lip;
+          g.fillRect(x, y, u + 0.7, Math.max(3, u * 0.34));
+        }
+        g.fillStyle = 'rgba(0,0,0,.07)';
+        g.fillRect(x, y, u + 0.7, Math.max(1, u * 0.06));
+      }
     }
   }
+
+  function drawHills(g) {
+    drawRidge(g, -60, GY + 8, 38, hillHeights(40, 1.9, 1.5, 3), {
+      grassA: '#a7d8c6', grassB: '#9dd0bc', bodyA: '#93c0ac', bodyB: '#8bb8a5', lip: '#b9e6d4'
+    });
+    drawRidge(g, -30, GY + 4, 30, hillHeights(50, 1.4, 1.2, 9), {
+      grassA: '#8fd47a', grassB: '#84c96f', bodyA: '#5da843', bodyB: '#569e3d', lip: '#a3e08d'
+    });
+  }
+
+  function drawGround(g) {
+    const C = H - GY;
+    const zFar = 30, N = 46, K = 200;
+    const bands = [];
+    for (let i = 0; i <= N; i++) {
+      const t = i / N;
+      const z = 1 + (zFar - 1) * Math.pow(t, 2.2);
+      bands.push({ z: z, y: GY + C / z });
+    }
+
+    g.fillStyle = '#a2cdb6';
+    g.fillRect(0, GY - 1, W, H - GY + 1);
+
+    const far = [152, 200, 178];
+    const near = [94, 172, 64];
+
+    for (let i = N; i >= 1; i--) {
+      const yTop = bands[i].y;
+      const yBot = bands[i - 1].y;
+      const zNearB = bands[i - 1].z;
+      const nearK = 1 - i / N;
+      const cw = K / zNearB;
+      const n = Math.ceil(W / cw) + 2;
+      const mix = Math.pow(nearK, 0.7);
+      const base = [lerp(far[0], near[0], mix), lerp(far[1], near[1], mix), lerp(far[2], near[2], mix)];
+
+      for (let c = 0; c < n; c++) {
+        const x = c * cw;
+        const k = 0.9 + hash(c * 0.37 + i * 1.7, i) * 0.2;
+        g.fillStyle = 'rgb(' + Math.round(base[0] * k) + ',' + Math.round(base[1] * k) + ',' + Math.round(base[2] * k) + ')';
+        g.fillRect(x, yTop, cw + 0.9, yBot - yTop + 0.9);
+      }
+
+      if (cw > 8) {
+        g.strokeStyle = 'rgba(26,68,26,' + (0.05 + 0.13 * nearK).toFixed(3) + ')';
+        g.lineWidth = Math.max(1, 1.7 * nearK);
+        g.beginPath();
+        g.moveTo(0, yTop);
+        g.lineTo(W, yTop);
+        g.stroke();
+        for (let c = 0; c <= n; c++) {
+          const x = c * cw;
+          g.beginPath();
+          g.moveTo(x, yTop);
+          g.lineTo(x, yBot);
+          g.stroke();
+        }
+      }
+    }
+
+    const haze = g.createLinearGradient(0, GY - 46, 0, GY + 96);
+    haze.addColorStop(0, 'rgba(222,242,255,.9)');
+    haze.addColorStop(0.45, 'rgba(222,242,255,.35)');
+    haze.addColorStop(1, 'rgba(222,242,255,0)');
+    g.fillStyle = haze;
+    g.fillRect(0, GY - 46, W, 142);
+  }
+
+  function drawTree(g, cx, baseY, u) {
+    const trunkH = 4 * u;
+    const top = baseY - trunkH;
+
+    g.fillStyle = '#6f4c2a';
+    g.fillRect(cx - u * 0.5, top, u, trunkH);
+    g.fillStyle = 'rgba(0,0,0,.22)';
+    g.fillRect(cx + u * 0.08, top, u * 0.42, trunkH);
+    g.fillStyle = 'rgba(255,255,255,.10)';
+    g.fillRect(cx - u * 0.5, top, u * 0.2, trunkH);
+
+    const rows = [
+      [-3, -1.5, 3],
+      [-2, -2.5, 5],
+      [-1, -2.5, 5],
+      [0, -1.5, 3]
+    ];
+    const greens = ['#4f9b31', '#57a83a', '#448c2a', '#63b845'];
+
+    for (let r = 0; r < rows.length; r++) {
+      for (let c = 0; c < rows[r][2]; c++) {
+        const bx = cx + (rows[r][1] + c) * u;
+        const by = top + rows[r][0] * u;
+        const v = hash(Math.floor(bx * 0.11), Math.floor(by * 0.11));
+        g.fillStyle = greens[Math.floor(v * 4) % 4];
+        g.fillRect(bx, by, u + 0.7, u + 0.7);
+        g.fillStyle = 'rgba(0,0,0,.10)';
+        g.fillRect(bx, by + u, u + 0.7, Math.max(1, u * 0.09));
+      }
+    }
+  }
+
+  function drawBush(g, cx, baseY, u) {
+    g.fillStyle = '#4d9633';
+    g.fillRect(cx - u * 0.5, baseY - u, u, u);
+    g.fillStyle = '#63b845';
+    g.fillRect(cx - u * 0.5, baseY - u, u, Math.max(2, u * 0.32));
+  }
+
+  let worldCache = null;
+
+  function buildWorld() {
+    const c = document.createElement('canvas');
+    c.width = W;
+    c.height = H;
+    const g = c.getContext('2d');
+
+    drawSky(g);
+    drawClouds(g);
+    drawHills(g);
+    drawGround(g);
+
+    const trees = [
+      [150, 338, 18], [470, 330, 15], [770, 336, 17], [1085, 344, 20],
+      [330, 396, 25], [640, 428, 29], [905, 462, 34], [1180, 486, 32]
+    ];
+    for (let i = 0; i < trees.length; i++) drawTree(g, trees[i][0], trees[i][1], trees[i][2]);
+
+    const bushes = [[220, 372, 14], [560, 366, 12], [860, 392, 16], [1000, 372, 13], [70, 404, 18], [1240, 420, 20]];
+    for (let i = 0; i < bushes.length; i++) drawBush(g, bushes[i][0], bushes[i][1], bushes[i][2]);
+
+    return c;
+  }
+
+  function drawWorld() {
+    if (!worldCache) worldCache = buildWorld();
+    ctx.drawImage(worldCache, 0, 0);
+  }
+
+  /* ---------------------------------------------------------------
+     Skin: robuste Erkennung und korrekte Proportionen
+     --------------------------------------------------------------- */
 
   function isSkin(img) {
-    return img.width === img.height && img.width >= 64 && img.width % 64 === 0;
+    const w = img.width, h = img.height;
+    if (w < 64 || w % 64 !== 0) return false;
+    return w === h || w === h * 2;
   }
 
-  function skinParts() {
-    return [
-      { dx: 4, dy: 0, dw: 8, dh: 8, fx: 8, fy: 8, sx: 0, sy: 8, depth: 8 },
-      { dx: 4, dy: 8, dw: 8, dh: 12, fx: 20, fy: 20, sx: 16, sy: 20, depth: 4 },
-      { dx: 0, dy: 8, dw: 4, dh: 12, fx: 44, fy: 20, sx: 40, sy: 20, depth: 4 },
-      { dx: 12, dy: 8, dw: 4, dh: 12, fx: 36, fy: 52, sx: 32, sy: 52, depth: 4 },
-      { dx: 4, dy: 20, dw: 4, dh: 12, fx: 4, fy: 20, sx: 0, sy: 20, depth: 4 },
-      { dx: 8, dy: 20, dw: 4, dh: 12, fx: 20, fy: 52, sx: 16, sy: 52, depth: 4 }
-    ];
+  function isLegacySkin(img) {
+    return img.width === img.height * 2;
+  }
+
+  function detectSlim(img) {
+    if (img.width !== img.height) return false;
+    const c = document.createElement('canvas');
+    c.width = 64;
+    c.height = 64;
+    const g = c.getContext('2d');
+    g.imageSmoothingEnabled = false;
+    g.drawImage(img, 0, 0, 64, 64);
+
+    let data;
+    try {
+      data = g.getImageData(0, 0, 64, 64).data;
+    } catch (err) {
+      return false;
+    }
+
+    function alpha(x, y) {
+      return data[(y * 64 + x) * 4 + 3];
+    }
+
+    let filled = 0;
+    for (let y = 20; y < 32; y++) {
+      if (alpha(47, y) > 8) filled++;
+      if (alpha(39, y) > 8) filled++;
+    }
+    return filled < 6;
   }
 
   function renderSkinCanvas() {
     const img = state.char;
+    const legacy = isLegacySkin(img);
+    let model = state.model;
+    if (model === 'auto') model = (!legacy && detectSlim(img)) ? 'slim' : 'classic';
+
     const u = img.width / 64;
+    const aw = model === 'slim' ? 3 : 4;
+    const bodyX = aw;
+    const totalW = 8 + aw * 2;
     const s = state.charSize / 32;
-    const pad = 3 * s;
+    const EDGE = 0.42;
+    const pad = 2;
+    const maxX = totalW + 4 * EDGE;
 
     const c = document.createElement('canvas');
-    c.width = Math.ceil(16 * s + pad * 2);
-    c.height = Math.ceil(32 * s + pad * 2);
+    c.width = Math.ceil((maxX + pad * 2) * s);
+    c.height = Math.ceil((32 + pad * 2) * s);
     const g = c.getContext('2d');
     g.imageSmoothingEnabled = false;
 
-    skinParts().forEach(function (p) {
-      const px = pad + p.dx * s;
-      const py = pad + p.dy * s;
-      const pw = p.dw * s;
-      const ph = p.dh * s;
-      const sw = p.depth * s * 0.42;
+    function X(v) { return (pad + v) * s; }
+    function Y(v) { return (pad + v) * s; }
 
-      g.drawImage(img, p.sx * u, p.sy * u, p.depth * u, p.dh * u, px + pw, py, sw, ph);
-      g.fillStyle = 'rgba(0,0,0,.20)';
-      g.fillRect(px + pw, py, sw, ph);
+    const src = {
+      head: { f: [8, 8, 8, 8], s: [0, 8, 8, 8] },
+      body: { f: [20, 20, 8, 12], s: [16, 20, 4, 12] },
+      armR: { f: [44, 20, aw, 12], s: [40, 20, aw, 12] },
+      armL: { f: legacy ? [44, 20, aw, 12] : [36, 52, aw, 12], s: legacy ? [40, 20, aw, 12] : [32, 52, aw, 12] },
+      legR: { f: [4, 20, 4, 12], s: [0, 20, 4, 12] },
+      legL: { f: legacy ? [4, 20, 4, 12] : [20, 52, 4, 12], s: legacy ? [0, 20, 4, 12] : [16, 52, 4, 12] }
+    };
 
-      g.drawImage(img, p.fx * u, p.fy * u, p.dw * u, p.dh * u, px, py, pw, ph);
-    });
+    const over = legacy
+      ? { head: [40, 8, 8, 8], body: null, armR: null, armL: null, legR: null, legL: null }
+      : {
+          head: [40, 8, 8, 8],
+          body: [20, 36, 8, 12],
+          armR: [44, 36, aw, 12],
+          armL: [52, 52, aw, 12],
+          legR: [0, 36, 4, 12],
+          legL: [4, 52, 4, 12]
+        };
 
-    g.drawImage(img, 40 * u, 8 * u, 8 * u, 8 * u, pad + 4 * s, pad, 8 * s, 8 * s);
+    function part(name, dx, dy, dw, dh, depth, extra) {
+      const p = src[name];
+      const sw = depth * EDGE;
 
+      g.drawImage(img, p.s[0] * u, p.s[1] * u, p.s[2] * u, p.s[3] * u, X(dx + dw), Y(dy), sw * s, dh * s);
+      g.fillStyle = 'rgba(0,0,0,.26)';
+      g.fillRect(X(dx + dw), Y(dy), sw * s, dh * s);
+
+      g.drawImage(img, p.f[0] * u, p.f[1] * u, p.f[2] * u, p.f[3] * u, X(dx), Y(dy), dw * s, dh * s);
+
+      if (extra) {
+        g.drawImage(img, extra[0] * u, extra[1] * u, extra[2] * u, extra[3] * u, X(dx), Y(dy), dw * s, dh * s);
+      }
+    }
+
+    part('legL', bodyX, 20, 4, 12, 4, over.legL);
+    part('legR', bodyX + 4, 20, 4, 12, 4, over.legR);
+    part('body', bodyX, 8, 8, 12, 4, over.body);
+    part('armL', 0, 8, aw, 12, 4, over.armL);
+    part('armR', bodyX + 8, 8, aw, 12, 4, over.armR);
+    part('head', bodyX, 0, 8, 8, 8, over.head);
+
+    return c;
+  }
+
+  function imageCanvas(img) {
+    const h = state.charSize;
+    const w = Math.max(1, Math.round(img.width * (h / img.height)));
+    const c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    c.getContext('2d').drawImage(img, 0, 0, w, h);
     return c;
   }
 
@@ -298,7 +499,7 @@
     }
 
     const x = state.side === 'right' ? W - c.width + 40 : -40;
-    const y = H - c.height + 40;
+    const y = H - c.height + 34;
 
     if (state.shadow) {
       const m = tint(c, '#000000');
@@ -327,15 +528,9 @@
     ctx.drawImage(c, x, y);
   }
 
-  function imageCanvas(img) {
-    const h = state.charSize;
-    const w = Math.round(img.width * (h / img.height));
-    const c = document.createElement('canvas');
-    c.width = w;
-    c.height = h;
-    c.getContext('2d').drawImage(img, 0, 0, w, h);
-    return c;
-  }
+  /* ---------------------------------------------------------------
+     Headline
+     --------------------------------------------------------------- */
 
   function sticker(part, x, y, size, color) {
     ctx.font = FONT(size);
@@ -365,14 +560,15 @@
 
     let size = 138;
     const plain = lines.map(function (l) { return l.replace(/\|/g, ''); });
-    const widest = function () {
+
+    function widest() {
       let max = 0;
       for (let i = 0; i < plain.length; i++) {
         const wv = ctx.measureText(plain[i]).width;
         if (wv > max) max = wv;
       }
       return max;
-    };
+    }
 
     ctx.font = FONT(size);
     while (size > 44 && widest() > maxW) {
@@ -398,9 +594,18 @@
     }
   }
 
+  /* ---------------------------------------------------------------
+     Pfeil
+     --------------------------------------------------------------- */
+
   function drawArrow() {
-    const x1 = 260, y1 = 620, x2 = 660, y2 = 620;
+    const flip = state.side === 'left';
+    const M = function (x) { return flip ? W - x : x; };
+
+    const x1 = M(250), y1 = 622;
+    const x2 = M(660), y2 = 622;
     const tail = 30, head = 62;
+
     const dx = x2 - x1, dy = y2 - y1;
     const len = Math.hypot(dx, dy) || 1;
     const ux = dx / len, uy = dy / len;
@@ -444,7 +649,7 @@
   function grade() {
     const v = ctx.createRadialGradient(W / 2, H * 0.42, H * 0.32, W / 2, H * 0.5, H * 1.02);
     v.addColorStop(0, 'rgba(0,0,0,0)');
-    v.addColorStop(1, 'rgba(0,0,0,.42)');
+    v.addColorStop(1, 'rgba(0,0,0,.38)');
     ctx.fillStyle = v;
     ctx.fillRect(0, 0, W, H);
   }
@@ -452,15 +657,32 @@
   function draw() {
     ctx.clearRect(0, 0, W, H);
     if (state.bg) cover(state.bg);
-    else placeholder();
+    else drawWorld();
     if (state.char) drawCharacter();
     drawHeadline();
     if (state.arrow) drawArrow();
     grade();
   }
 
+  /* ---------------------------------------------------------------
+     UI
+     --------------------------------------------------------------- */
+
   function readHeadline() {
     state.lines = $('headline').value.split('\n');
+  }
+
+  function charInfoText(img) {
+    if (!isSkin(img)) {
+      return img.width + '×' + img.height + ' – wird als fertiges Bild eingesetzt. Für Skins bitte die 64×64-Datei wählen.';
+    }
+    if (isLegacySkin(img)) {
+      return 'Skin erkannt (' + img.width + '×' + img.height + ') – altes 64×32-Layout: Arme und Beine werden gespiegelt.';
+    }
+    if (detectSlim(img)) {
+      return 'Skin erkannt (' + img.width + '×' + img.height + ') – Slim-Modell, 3 px breite Arme.';
+    }
+    return 'Skin erkannt (' + img.width + '×' + img.height + ') – klassisches Modell, 4 px breite Arme.';
   }
 
   function loadFile(input, key) {
@@ -472,13 +694,8 @@
         state[key] = img;
         if (key === 'char') {
           const info = $('charInfo');
-          if (isSkin(img)) {
-            info.textContent = 'Skin erkannt (' + img.width + '×' + img.height + ') – wird als Figur gerendert.';
-            info.className = 'hint ok';
-          } else {
-            info.textContent = img.width + '×' + img.height + ' – wird als fertiges Bild eingesetzt (für Skins bitte die 64×64-Datei nehmen).';
-            info.className = 'hint';
-          }
+          info.textContent = charInfoText(img);
+          info.className = isSkin(img) ? 'hint ok' : 'hint';
         }
         draw();
       };
@@ -492,22 +709,31 @@
   loadFile($('bgFile'), 'bg');
   loadFile($('charFile'), 'char');
 
+  $('charModel').addEventListener('change', function (e) {
+    state.model = e.target.value;
+    draw();
+  });
+
   $('charSize').addEventListener('input', function (e) {
     state.charSize = Number(e.target.value);
     draw();
   });
+
   $('charSide').addEventListener('change', function (e) {
     state.side = e.target.value;
     draw();
   });
+
   $('accent').addEventListener('input', function (e) {
     state.accent = e.target.value;
     draw();
   });
+
   $('headline').addEventListener('input', function () {
     readHeadline();
     draw();
   });
+
   ['outline', 'shadow', 'arrow'].forEach(function (id) {
     $(id).addEventListener('change', function (e) {
       state[id] = e.target.checked;
@@ -518,20 +744,19 @@
   $('download').addEventListener('click', function () {
     draw();
 
-    let href;
+    let url;
     try {
-      href = cv.toDataURL('image/jpeg', 0.92);
+      url = cv.toDataURL('image/jpeg', 0.94);
     } catch (err) {
-      alert('Export fehlgeschlagen: ' + (err && err.message ? err.message : err));
+      alert('Export im Browser nicht möglich.');
       return;
     }
 
     const a = document.createElement('a');
-    a.download = 'blockthumb-1280x720.jpg';
-    a.href = href;
-    a.rel = 'noopener';
-    a.style.display = 'none';
-
+    a.href = url;
+    a.download = 'blockthumb.jpg';
+    a.style.position = 'fixed';
+    a.style.left = '-9999px';
     document.body.appendChild(a);
     a.click();
     setTimeout(function () {
@@ -539,17 +764,13 @@
     }, 1000);
   });
 
-  function boot() {
-    readHeadline();
-    draw();
-    if (document.fonts && document.fonts.load) {
-      document.fonts.load('400 120px Anton').then(draw).catch(function () {});
-      document.fonts.ready.then(draw);
-    }
+  readHeadline();
+
+  if (document.fonts && document.fonts.load) {
+    document.fonts.load('400 138px Anton').then(draw).catch(draw);
   }
 
-  window.addEventListener('load', draw);
-  boot();
+  draw();
 })();
 </script>
 </body>
