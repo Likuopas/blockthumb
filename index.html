@@ -23,6 +23,7 @@
   input[type=file]::file-selector-button{margin-right:10px;background:#1d252f;border:1px solid #26303b;color:#f5f7fa;padding:8px 12px;border-radius:8px;font:inherit;cursor:pointer}
   .row{display:flex;align-items:center;justify-content:space-between;gap:12px}
   .hint{font-size:12px;color:#9aa6b2}
+  .hint.ok{color:#7cff6b}
   .swatches{display:flex;gap:10px;align-items:center}
   input[type=color]{width:44px;height:30px;padding:0;border:1px solid #26303b;border-radius:8px;background:#1d252f}
   input[type=range]{width:100%}
@@ -49,8 +50,9 @@
     </div>
 
     <div class="field">
-      <span class="label">Charakter (PNG mit Transparenz)</span>
+      <span class="label">Charakter – Skin oder PNG</span>
       <input type="file" id="charFile" accept="image/*" />
+      <span class="hint" id="charInfo">Skin 64×64 wird automatisch zur Figur gerendert; ein fertiges PNG mit Transparenz wird direkt eingesetzt.</span>
       <div class="field">
         <span class="label">Größe</span>
         <input type="range" id="charSize" min="320" max="760" value="640" />
@@ -241,17 +243,62 @@
     }
   }
 
-  function drawCharacter() {
+  function isSkin(img) {
+    return img.width === img.height && img.width >= 64 && img.width % 64 === 0;
+  }
+
+  function skinParts() {
+    return [
+      { dx: 4, dy: 0, dw: 8, dh: 8, fx: 8, fy: 8, sx: 0, sy: 8, depth: 8 },
+      { dx: 4, dy: 8, dw: 8, dh: 12, fx: 20, fy: 20, sx: 16, sy: 20, depth: 4 },
+      { dx: 0, dy: 8, dw: 4, dh: 12, fx: 44, fy: 20, sx: 40, sy: 20, depth: 4 },
+      { dx: 12, dy: 8, dw: 4, dh: 12, fx: 36, fy: 52, sx: 32, sy: 52, depth: 4 },
+      { dx: 4, dy: 20, dw: 4, dh: 12, fx: 4, fy: 20, sx: 0, sy: 20, depth: 4 },
+      { dx: 8, dy: 20, dw: 4, dh: 12, fx: 20, fy: 52, sx: 16, sy: 52, depth: 4 }
+    ];
+  }
+
+  function renderSkinCanvas() {
     const img = state.char;
-    const h = state.charSize;
-    const w = Math.round(img.width * (h / img.height));
-    const x = state.side === 'right' ? W - w + 40 : -40;
-    const y = H - h + 40;
+    const u = img.width / 64;
+    const s = state.charSize / 32;
+    const pad = 3 * s;
 
     const c = document.createElement('canvas');
-    c.width = w;
-    c.height = h;
-    c.getContext('2d').drawImage(img, 0, 0, w, h);
+    c.width = Math.ceil(16 * s + pad * 2);
+    c.height = Math.ceil(32 * s + pad * 2);
+    const g = c.getContext('2d');
+    g.imageSmoothingEnabled = false;
+
+    skinParts().forEach(function (p) {
+      const px = pad + p.dx * s;
+      const py = pad + p.dy * s;
+      const pw = p.dw * s;
+      const ph = p.dh * s;
+      const sw = p.depth * s * 0.42;
+
+      g.drawImage(img, p.sx * u, p.sy * u, p.depth * u, p.dh * u, px + pw, py, sw, ph);
+      g.fillStyle = 'rgba(0,0,0,.20)';
+      g.fillRect(px + pw, py, sw, ph);
+
+      g.drawImage(img, p.fx * u, p.fy * u, p.dw * u, p.dh * u, px, py, pw, ph);
+    });
+
+    g.drawImage(img, 40 * u, 8 * u, 8 * u, 8 * u, pad + 4 * s, pad, 8 * s, 8 * s);
+
+    return c;
+  }
+
+  function drawCharacter() {
+    let c;
+    try {
+      c = isSkin(state.char) ? renderSkinCanvas() : imageCanvas(state.char);
+    } catch (err) {
+      c = imageCanvas(state.char);
+    }
+
+    const x = state.side === 'right' ? W - c.width + 40 : -40;
+    const y = H - c.height + 40;
 
     if (state.shadow) {
       const m = tint(c, '#000000');
@@ -278,6 +325,16 @@
     }
 
     ctx.drawImage(c, x, y);
+  }
+
+  function imageCanvas(img) {
+    const h = state.charSize;
+    const w = Math.round(img.width * (h / img.height));
+    const c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    c.getContext('2d').drawImage(img, 0, 0, w, h);
+    return c;
   }
 
   function sticker(part, x, y, size, color) {
@@ -413,6 +470,16 @@
       const img = new Image();
       img.onload = function () {
         state[key] = img;
+        if (key === 'char') {
+          const info = $('charInfo');
+          if (isSkin(img)) {
+            info.textContent = 'Skin erkannt (' + img.width + '×' + img.height + ') – wird als Figur gerendert.';
+            info.className = 'hint ok';
+          } else {
+            info.textContent = img.width + '×' + img.height + ' – wird als fertiges Bild eingesetzt (für Skins bitte die 64×64-Datei nehmen).';
+            info.className = 'hint';
+          }
+        }
         draw();
       };
       img.onerror = function () {
