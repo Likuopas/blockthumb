@@ -151,10 +151,7 @@
     ctx.drawImage(img, (W - w) / 2, (H - h) / 2, w, h);
   }
 
-  /* ---------------------------------------------------------------
-     Blockwelt: isometrische Würfel, echte Blockflächen
-     --------------------------------------------------------------- */
-
+  /* Blockwelt: isometrische Würfel */
   const GRID = 34;
   const TW = 34, TD = 17, TH = 34;
   const OX = 640, OY = 252;
@@ -197,11 +194,11 @@
   function hAt(x, z) {
     const k = x + z;
     const t = Math.max(0, (22 - k) / 22);
-    let h = 1 + Math.pow(t, 1.15) * 2.5;
+    let h = 1 + Math.pow(t, 1.15) * 2.4;
     h += (Math.sin(x * 0.55) * 0.5 + Math.cos(z * 0.5 + 1.2) * 0.5) * t;
     h = Math.round(h);
     if (k < 20 && hash(x * 1.7 + 2, z * 2.3 + 3) > 0.92) h += 1;
-    return Math.max(1, Math.min(6, h));
+    return Math.max(1, Math.min(5, h));
   }
 
   function surfaceOf(x, z, h) {
@@ -224,9 +221,9 @@
 
     const hx = hAt(x + 1, z);
     const hz = hAt(x, z + 1);
+    const stone = surf === 'stone';
 
     if (hx < h) {
-      const stone = surf === 'stone';
       poly(g, [iso(x + 1, hx, z), iso(x + 1, hx, z + 1), iso(x + 1, h, z + 1), iso(x + 1, h, z)],
         stone ? pick(STONE_SIDE, x, z) : pick(DIRT_SIDE, x, z), 'rgba(0,0,0,.14)');
       if (!stone) {
@@ -236,7 +233,6 @@
     }
 
     if (hz < h) {
-      const stone = surf === 'stone';
       poly(g, [iso(x, hz, z + 1), iso(x + 1, hz, z + 1), iso(x + 1, h, z + 1), iso(x, h, z + 1)],
         stone ? pick(STONE_SIDE, z, x) : pick(DIRT_SIDE, z, x), 'rgba(0,0,0,.14)');
       if (!stone) {
@@ -245,7 +241,7 @@
       }
     }
 
-    const top = surf === 'stone' ? pick(STONE_TOP, x, z)
+    const top = stone ? pick(STONE_TOP, x, z)
       : surf === 'dirt' ? pick(DIRT_TOP, x, z)
       : pick(GRASS_TOP, x, z);
 
@@ -253,7 +249,7 @@
   }
 
   function cube(g, x, y, z, colTop, colX, colZ, sx, sz) {
-    const a = iso(x, y, z), b = iso(x + 1, y, z), c = iso(x + 1, y, z + 1), d = iso(x, y, z + 1);
+    const b = iso(x + 1, y, z), c = iso(x + 1, y, z + 1), d = iso(x, y, z + 1);
     const e = iso(x, y + 1, z), f = iso(x + 1, y + 1, z), gg = iso(x + 1, y + 1, z + 1), hh = iso(x, y + 1, z + 1);
     poly(g, [b, c, gg, f], pick(colX, sx, sz), 'rgba(0,0,0,.16)');
     poly(g, [d, c, gg, hh], pick(colZ, sz, sx), 'rgba(0,0,0,.16)');
@@ -296,9 +292,9 @@
   }
 
   const TREES = [
-    [7, 9, 'big'], [20, 6, 'mid'], [26, 12, 'big'], [5, 16, 'mid'],
-    [22, 18, 'small'], [12, 20, 'big'], [28, 26, 'mid'], [4, 24, 'small'],
-    [16, 27, 'mid'], [30, 20, 'small']
+    [6, 6, 'big'], [13, 5, 'mid'], [20, 4, 'big'], [5, 12, 'mid'],
+    [10, 13, 'small'], [17, 10, 'big'], [24, 2, 'small'], [7, 17, 'small'],
+    [23, 5, 'mid'], [12, 7, 'big'], [19, 10, 'mid'], [2, 16, 'small']
   ];
 
   function treesAt(k) {
@@ -383,10 +379,7 @@
     ctx.drawImage(worldCache, 0, 0);
   }
 
-  /* ---------------------------------------------------------------
-     Skin: robuste Erkennung, ruhige Proportionen
-     --------------------------------------------------------------- */
-
+  /* Skin */
   function isSkin(img) {
     const w = img.width, h = img.height;
     if (w < 64 || w % 64 !== 0) return false;
@@ -447,12 +440,12 @@
     function E(v) { return Math.round((pad + v) * s); }
 
     const src = {
-      head: { f: [8, 8, 8, 8] },
-      body: { f: [20, 20, 8, 12] },
-      armR: { f: [44, 20, aw, 12] },
-      armL: { f: legacy ? [44, 20, aw, 12] : [36, 52, aw, 12] },
-      legR: { f: [4, 20, 4, 12] },
-      legL: { f: legacy ? [4, 20, 4, 12] : [20, 52, 4, 12] }
+      head: [8, 8, 8, 8],
+      body: [20, 20, 8, 12],
+      armR: [44, 20, aw, 12],
+      armL: legacy ? [44, 20, aw, 12] : [36, 52, aw, 12],
+      legR: [4, 20, 4, 12],
+      legL: legacy ? [4, 20, 4, 12] : [20, 52, 4, 12]
     };
 
     const over = legacy
@@ -468,7 +461,7 @@
 
     function part(name, dx, dy, dw, dh) {
       const x0 = E(dx), y0 = E(dy), w = E(dx + dw) - x0, h = E(dy + dh) - y0;
-      const f = src[name].f;
+      const f = src[name];
       g.drawImage(img, f[0] * u, f[1] * u, f[2] * u, f[3] * u, x0, y0, w, h);
       const o = over[name];
       if (o) g.drawImage(img, o[0] * u, o[1] * u, o[2] * u, o[3] * u, x0, y0, w, h);
@@ -522,7 +515,7 @@
       const steps = 36;
 
       ctx.save();
-      ctx.globalAlpha = 0.55;
+      ctx.globalAlpha = 0.5;
       for (let i = 0; i < steps; i++) {
         const a = (i / steps) * Math.PI * 2;
         ctx.drawImage(dark, x + Math.cos(a) * Rb, y + Math.sin(a) * Rb);
@@ -538,10 +531,7 @@
     ctx.drawImage(c, x, y);
   }
 
-  /* ---------------------------------------------------------------
-     Headline
-     --------------------------------------------------------------- */
-
+  /* Headline */
   function sticker(part, x, y, size, color) {
     ctx.font = FONT(size);
     ctx.textBaseline = 'top';
@@ -604,10 +594,7 @@
     }
   }
 
-  /* ---------------------------------------------------------------
-     Pfeil
-     --------------------------------------------------------------- */
-
+  /* Pfeil */
   function drawArrow() {
     const flip = state.side === 'left';
     const M = function (x) { return flip ? W - x : x; };
@@ -673,10 +660,6 @@
     if (state.arrow) drawArrow();
     grade();
   }
-
-  /* ---------------------------------------------------------------
-     UI
-     --------------------------------------------------------------- */
 
   function readHeadline() {
     state.lines = $('headline').value.split('\n');
